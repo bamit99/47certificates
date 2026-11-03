@@ -1,0 +1,18 @@
+{{define "content"}}
+<h1>Domains &amp; Scope</h1>
+<table>
+<thead><tr><th>Kind</th><th>Value</th><th>Note</th><th>Created</th></tr></thead>
+<tbody>
+{{range .Entries}}
+<tr>
+<td>{{.Kind}}</td>
+<td><a href="/domains/{{.Value}}"><code>{{.Value}}</code></a></td>
+<td>{{.Note}}</td>
+<td>{{when .CreatedAt}}</td>
+</tr>
+{{else}}
+<tr><td colspan="4">No scope entries.</td></tr>
+{{end}}
+</tbody>
+</table>
+{{end}}

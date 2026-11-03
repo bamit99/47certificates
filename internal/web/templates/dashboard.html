@@ -1,0 +1,51 @@
+{{define "content"}}
+<h1>Dashboard</h1>
+
+<div class="cards">
+{{range .BucketRows}}
+<a class="card" href="/certs?bucket={{.Key}}" data-bucket="{{.Key}}">
+<div class="title">{{.Label}}</div>
+<div class="count">{{.Count}}</div>
+</a>
+{{end}}
+</div>
+
+<h2>Expiring soon</h2>
+{{if .Expiring}}
+<table>
+<thead><tr><th>Fingerprint</th><th>Subject</th><th>Expires</th><th>Days left</th><th>Bucket</th></tr></thead>
+<tbody>
+{{range .Expiring}}
+<tr>
+<td><a href="/certs/{{.Fingerprint}}"><code>{{.ShortFP}}</code></a></td>
+<td>{{.Subject}}</td>
+<td>{{when .NotAfter}}</td>
+<td>{{.DaysLeft}}</td>
+<td><span class="badge {{.Bucket}}">{{.Bucket}}</span></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>None in the next 60 days.</p>
+{{end}}
+
+<h2>Recent scans</h2>
+{{if .RecentScans}}
+<table>
+<thead><tr><th>ID</th><th>Status</th><th>Trigger</th><th>Started</th></tr></thead>
+<tbody>
+{{range .RecentScans}}
+<tr>
+<td><a href="/scans/{{.ID}}">#{{.ID}}</a></td>
+<td>{{.Status}}</td>
+<td>{{.Trigger}}</td>
+<td>{{when .StartedAt}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>No scans yet.</p>
+{{end}}
+{{end}}

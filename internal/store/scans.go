@@ -9,14 +9,14 @@ import (
 
 // Scan is one row of the scans table.
 type Scan struct {
-	ID          int64
-	StartedAt   time.Time
-	FinishedAt  *time.Time
-	Status      string
-	Trigger     string
-	TriggeredBy *int64
-	Stats       string
-	Error       string
+	ID          int64      `json:"id"`
+	StartedAt   time.Time  `json:"started_at"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	Status      string     `json:"status"`
+	Trigger     string     `json:"trigger"`
+	TriggeredBy *int64     `json:"triggered_by,omitempty"`
+	Stats       string     `json:"stats,omitempty"`
+	Error       string     `json:"error,omitempty"`
 }
 
 // BeginScan inserts a queued scan and returns its id.

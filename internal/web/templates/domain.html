@@ -1,0 +1,18 @@
+{{define "content"}}
+<h1>Domain: <code>{{.Domain}}</code></h1>
+<p><a href="/domains">&larr; Back to domains</a></p>
+
+<h2>Hosts in inventory</h2>
+{{if .Hosts}}
+<table>
+<thead><tr><th>Hostname</th></tr></thead>
+<tbody>
+{{range .Hosts}}
+<tr><td>{{.}}</td></tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>No hostnames discovered yet.</p>
+{{end}}
+{{end}}

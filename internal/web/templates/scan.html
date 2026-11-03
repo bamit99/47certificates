@@ -1,0 +1,48 @@
+{{define "content"}}
+<h1>Scan #{{.Scan.ID}}</h1>
+<dl class="meta">
+<dt>Status</dt><dd>{{.Scan.Status}}</dd>
+<dt>Trigger</dt><dd>{{.Scan.Trigger}}</dd>
+<dt>Started</dt><dd>{{when .Scan.StartedAt}}</dd>
+<dt>Finished</dt><dd>{{with .Scan.FinishedAt}}{{when .}}{{else}}—{{end}}</dd>
+<dt>Error</dt><dd>{{if .Scan.Error}}{{.Scan.Error}}{{else}}none{{end}}</dd>
+</dl>
+
+{{if .Stats}}
+<h2>Stats</h2>
+<pre>{{json .Stats}}</pre>
+{{end}}
+
+<h2>Observations</h2>
+{{if .Rows}}
+<table>
+<thead><tr><th>Host</th><th>Port</th><th>IP</th><th>Fingerprint</th><th>Trust</th><th>Expiry</th></tr></thead>
+<tbody>
+{{range .Rows}}
+<tr>
+<td><a href="/domains/{{.Host}}">{{.Host}}</a></td>
+<td>{{.Port}}</td>
+<td><code>{{.IP}}</code></td>
+<td><a href="/certs/{{.Fingerprint}}"><code>{{.Fingerprint}}</code></a></td>
+<td>{{.Trust}}</td>
+<td>{{when .NotAfter}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>No observations.</p>
+{{end}}
+<script>
+if ("{{.Scan.Status}}" === "queued" || "{{.Scan.Status}}" === "running") {
+  const es = new EventSource("/scans/{{.Scan.ID}}/events");
+  es.onmessage = (ev) => {
+    const data = JSON.parse(ev.data);
+    if (data.status === "done" || data.status === "failed" || data.status === "cancelled") {
+      es.close();
+      window.location.reload();
+    }
+  };
+}
+</script>
+{{end}}

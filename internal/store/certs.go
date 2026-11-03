@@ -41,8 +41,8 @@ func (s *Store) UpsertCert(ctx context.Context, c x509eval.Cert) (int64, error) 
 	err = s.db.QueryRowContext(ctx,
 		`INSERT INTO certs (fingerprint_sha256, subject, issuer_dn, not_before, not_after,
 		                    lifetime_days, key_alg, key_bits, sig_alg, san_json, chain_json,
-		                    ari_url, ocsp_url, crl_url, first_seen, last_seen)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                    ari_url, ocsp_url, crl_url, first_seen, last_seen, raw_der)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (fingerprint_sha256) DO UPDATE SET
 		   subject = excluded.subject, issuer_dn = excluded.issuer_dn,
 		   not_before = excluded.not_before, not_after = excluded.not_after,
@@ -51,11 +51,11 @@ func (s *Store) UpsertCert(ctx context.Context, c x509eval.Cert) (int64, error) 
 		   san_json = excluded.san_json, chain_json = excluded.chain_json,
 		   ari_url = excluded.ari_url, ocsp_url = excluded.ocsp_url,
 		   crl_url = excluded.crl_url, last_seen = excluded.last_seen,
-		   retired_at = NULL
+		   raw_der = excluded.raw_der, retired_at = NULL
 		 RETURNING id`,
 		c.Fingerprint, c.Subject, c.Issuer, toUnix(c.NotBefore), toUnix(c.NotAfter),
 		c.LifetimeDays, c.KeyAlg, c.KeyBits, c.SigAlg, string(sans), string(chain),
-		c.ARIURL, c.OCSPURL, c.CRLURL, now, now).Scan(&id)
+		c.ARIURL, c.OCSPURL, c.CRLURL, now, now, c.Raw).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("store: upsert cert: %w", err)
 	}

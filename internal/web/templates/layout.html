@@ -1,0 +1,27 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} - 47c</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="top">
+<strong>47c</strong>
+<nav>
+<a href="/">Dashboard</a>
+<a href="/certs">Certificates</a>
+<a href="/domains">Domains</a>
+<a href="/scans">Scans</a>
+</nav>
+<form method="post" action="/logout" style="margin:0">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button type="submit">Sign out ({{.User.Username}})</button>
+</form>
+</header>
+<main>
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}

@@ -1,0 +1,54 @@
+{{define "content"}}
+<div style="display:flex;justify-content:space-between;align-items:center">
+<h1>Certificate <code>{{.Cert.ShortFP}}...</code></h1>
+{{if .Cert.HasRaw}}<p><a href="/certs/{{.Cert.Fingerprint}}/pem" download="{{.Cert.ShortFP}}.pem">Download PEM</a></p>{{end}}
+</div>
+
+<dl class="meta">
+<dt>Fingerprint (SHA-256)</dt><dd><code>{{.Cert.Fingerprint}}</code></dd>
+<dt>Subject</dt><dd>{{.Cert.Subject}}</dd>
+<dt>Issuer</dt><dd>{{.Cert.Issuer}}</dd>
+<dt>SANs</dt><dd>{{range $i, $s := .Cert.SANs}}{{if $i}}, {{end}}<code>{{$s}}</code>{{end}}</dd>
+<dt>Validity</dt><dd>{{when .Cert.NotBefore}} to {{when .Cert.NotAfter}} ({{.Cert.LifetimeDays}} days)</dd>
+<dt>Key</dt><dd>{{.Cert.KeyAlg}} {{.Cert.KeyBits}} bits, {{.Cert.SigAlg}}</dd>
+<dt>Bucket</dt><dd><span class="badge {{.Cert.Bucket}}">{{.Cert.Bucket}}</span></dd>
+<dt>First seen</dt><dd>{{when .Cert.FirstSeen}}</dd>
+<dt>Last seen</dt><dd>{{with .Cert.LastSeen}}{{when .}}{{else}}never{{end}}</dd>
+<dt>Retired</dt><dd>{{if .Cert.Retired}}yes{{else}}no{{end}}</dd>
+</dl>
+
+<h2>Why</h2>
+{{if .Cert.Findings}}
+<ul class="findings">
+{{range .Cert.Findings}}
+<li>
+<div><strong>{{.Type}}</strong><br>{{.Sentence}}</div>
+<span class="badge {{.Severity}}">{{.Severity}}</span>
+</li>
+{{end}}
+</ul>
+{{else}}
+<p>No findings.</p>
+{{end}}
+
+<h2>Endpoints serving this certificate</h2>
+{{if .Endpoints}}
+<table>
+<thead><tr><th>Host</th><th>Port</th><th>IP</th><th>Trust</th><th>Chain</th><th>Hostname</th></tr></thead>
+<tbody>
+{{range .Endpoints}}
+<tr>
+<td><a href="/domains/{{.Host}}">{{.Host}}</a></td>
+<td>{{.Port}}</td>
+<td><code>{{.IP}}</code></td>
+<td>{{.Trust}}</td>
+<td>{{if .ChainValid}}valid{{else}}invalid{{end}}</td>
+<td>{{if .HostnameValid}}match{{else}}mismatch{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>None recorded.</p>
+{{end}}
+{{end}}

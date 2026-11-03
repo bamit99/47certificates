@@ -5,7 +5,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"errors"
 	"fmt"
 	"time"
@@ -16,8 +16,16 @@ import (
 // ErrScanInProgress is returned when another process holds the scan lock.
 var ErrScanInProgress = errors.New("store: scan already in progress")
 
-//go:embed migrations/0001_init.sql
-var migration1 string
+//go:embed migrations/0001_init.sql migrations/0002_cert_raw.sql
+var migrationFS embed.FS
+
+var migrations = []struct {
+	version int
+	file    string
+}{
+	{1, "migrations/0001_init.sql"},
+	{2, "migrations/0002_cert_raw.sql"},
+}
 
 // lockStaleAfter lets a crashed holder be reclaimed.
 const lockStaleAfter = 30 * time.Minute
@@ -49,20 +57,27 @@ func (s *Store) Migrate() error {
 		version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
 		return fmt.Errorf("store: migrations table: %w", err)
 	}
-	var applied int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = 1`).Scan(&applied); err != nil {
-		return err
-	}
-	if applied == 0 {
+	for _, m := range migrations {
+		script, err := migrationFS.ReadFile(m.file)
+		if err != nil {
+			return fmt.Errorf("store: read migration %d: %w", m.version, err)
+		}
+		var applied int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, m.version).Scan(&applied); err != nil {
+			return err
+		}
+		if applied > 0 {
+			continue
+		}
 		tx, err := s.db.Begin()
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(migration1); err != nil {
+		if _, err := tx.Exec(string(script)); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("store: migration 1: %w", err)
+			return fmt.Errorf("store: migration %d: %w", m.version, err)
 		}
-		if _, err := tx.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)`, time.Now().Unix()); err != nil {
+		if _, err := tx.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`, m.version, time.Now().Unix()); err != nil {
 			tx.Rollback()
 			return err
 		}

@@ -3,7 +3,7 @@ package web
 
 import (
 	"context"
-	"fmt"
+	"embed"
 	"html/template"
 	"net/http"
 	"time"
@@ -11,6 +11,20 @@ import (
 	"github.com/amit/47certificates/internal/scan"
 	"github.com/amit/47certificates/internal/store"
 )
+
+//go:embed templates/*.html static/app.css
+var assets embed.FS
+
+var viewTemplates = map[string]*template.Template{}
+
+func init() {
+	for _, p := range []string{"dashboard", "certs", "cert", "domains", "domain", "scans", "scan"} {
+		t := template.Must(template.New("layout.html").
+			Funcs(template.FuncMap(funcMap)).
+			ParseFS(assets, "templates/layout.html", "templates/"+p+".html"))
+		viewTemplates[p] = t
+	}
+}
 
 // JobTrigger is the scan runner surface the UI needs. It is defined here so
 // the web package does not depend on the jobs implementation.
@@ -66,7 +80,18 @@ func New(d Deps) http.Handler {
 	s.secret = loadSecret(d.Store)
 	s.loginTmpl = template.Must(template.New("login").Parse(loginPage))
 	s.mux = http.NewServeMux()
+	s.mux.Handle("GET /static/", staticHandler())
 	s.mux.HandleFunc("GET /{$}", s.handleDashboard)
+	s.mux.HandleFunc("GET /certs", s.handleCerts)
+	s.mux.HandleFunc("GET /certs/{fp}", s.handleCertDetail)
+	s.mux.HandleFunc("GET /certs/{fp}/pem", s.handleCertPEM)
+	s.mux.HandleFunc("GET /domains", s.handleDomains)
+	s.mux.HandleFunc("GET /domains/{d}", s.handleDomainDetail)
+	s.mux.HandleFunc("GET /scans", s.handleScans)
+	s.mux.HandleFunc("GET /scans/{id}", s.handleScanDetail)
+	s.mux.HandleFunc("GET /scans/{id}/events", s.handleScanEvents)
+	s.mux.HandleFunc("GET /api/certs", s.handleAPICerts)
+	s.mux.HandleFunc("GET /api/scans", s.handleAPIScans)
 	s.mux.HandleFunc("GET /scope", s.handleScopeGet)
 	s.mux.HandleFunc("POST /scope", s.handleScopePost)
 	s.mux.HandleFunc("POST /logout", s.handleLogout)
@@ -125,14 +150,7 @@ func CSRFFrom(ctx context.Context) string {
 	return t
 }
 
-// --- placeholders replaced by later tasks ---
-
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	u, _ := UserFrom(r.Context())
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, "<!doctype html><html><head><title>47c</title></head><body><h1>47c</h1><p>Signed in as %s</p></body></html>",
-		template.HTMLEscapeString(u.Username))
-}
+// --- placeholder replaced by Task 12 ---
 
 func (s *Server) handleScopeGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

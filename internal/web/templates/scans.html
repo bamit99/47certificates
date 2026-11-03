@@ -1,0 +1,21 @@
+{{define "content"}}
+<h1>Scans</h1>
+{{if .Scans}}
+<table>
+<thead><tr><th>ID</th><th>Status</th><th>Trigger</th><th>Started</th><th>Finished</th></tr></thead>
+<tbody>
+{{range .Scans}}
+<tr>
+<td><a href="/scans/{{.ID}}">#{{.ID}}</a></td>
+<td>{{.Status}}</td>
+<td>{{.Trigger}}</td>
+<td>{{when .StartedAt}}</td>
+<td>{{with .FinishedAt}}{{when .}}{{else}}—{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>No scans yet.</p>
+{{end}}
+{{end}}

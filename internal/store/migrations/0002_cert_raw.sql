@@ -1,0 +1,1 @@
+ALTER TABLE certs ADD COLUMN raw_der BLOB;

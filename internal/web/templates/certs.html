@@ -1,0 +1,40 @@
+{{define "content"}}
+<h1>Certificates</h1>
+
+<form method="get" action="/certs" class="filter-bar">
+<input type="text" name="q" value="{{.Query}}" placeholder="Search fingerprint, subject, issuer, SAN">
+<select name="bucket">
+<option value="" {{if eq .Bucket ""}}selected{{end}}>All buckets</option>
+{{range .BucketOptions}}
+<option value="{{.Key}}" {{if eq $.Bucket .Key}}selected{{end}}>{{.Label}}</option>
+{{end}}
+</select>
+<label><input type="checkbox" name="retired" value="1" {{if .Retired}}checked{{end}}> Include retired</label>
+<button type="submit">Filter</button>
+</form>
+
+{{if .Certs}}
+<table>
+<thead><tr><th>Fingerprint</th><th>Subject</th><th>Expires</th><th>Days</th><th>Bucket</th><th>Severity</th></tr></thead>
+<tbody>
+{{range .Certs}}
+<tr>
+<td><a href="/certs/{{.Fingerprint}}"><code>{{.ShortFP}}</code></a></td>
+<td>{{.Subject}}</td>
+<td>{{when .NotAfter}}</td>
+<td>{{.DaysLeft}}</td>
+<td><span class="badge {{.Bucket}}">{{.Bucket}}</span></td>
+<td><span class="badge {{.Severity}}">{{.Severity}}</span></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+<div class="pagination">
+{{if .PrevPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;page={{.PrevPage}}{{if .Retired}}&amp;retired=1{{end}}">Prev</a>{{end}}
+<span>Page {{.Page}} / {{.Pages}}</span>
+{{if .NextPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;page={{.NextPage}}{{if .Retired}}&amp;retired=1{{end}}">Next</a>{{end}}
+</div>
+{{else}}
+<p>No certificates match.</p>
+{{end}}
+{{end}}
