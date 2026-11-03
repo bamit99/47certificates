@@ -91,6 +91,9 @@ func (s *Store) Migrate() error {
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
+// Path returns the file path the store was opened with.
+func (s *Store) Path() string { return s.path }
+
 // DB exposes the handle for tests and read-only helpers in this package.
 func (s *Store) DB() *sql.DB { return s.db }
 

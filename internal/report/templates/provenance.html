@@ -1,0 +1,5 @@
+{{define "provenance"}}<footer style="margin-top:2rem;padding-top:1rem;border-top:1px solid #ddd;font-size:0.8rem;color:#555">
+<p>Report #{{.ReportID}} · scan #{{.ScanID}} · generated {{when .GeneratedAt}} · 47c {{.Version}}</p>
+<p>Scope: {{.Scope}} · CA/B phase {{.Phase.Name}} · delta vs baseline: {{.Delta.Sentence}}</p>
+<p>Scope of analysis: publicly-trusted certificates only. Private-CA and internal PKI are out of scope; private observations are in the appendix. Chains are verified against an embedded Mozilla root bundle.</p>
+</footer>{{end}}

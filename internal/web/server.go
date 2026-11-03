@@ -18,7 +18,7 @@ var assets embed.FS
 var viewTemplates = map[string]*template.Template{}
 
 func init() {
-	for _, p := range []string{"dashboard", "certs", "cert", "domains", "domain", "scans", "scan", "scope", "settings", "audit"} {
+	for _, p := range []string{"dashboard", "certs", "cert", "domains", "domain", "scans", "scan", "scope", "settings", "audit", "reports", "report"} {
 		t := template.Must(template.New("layout.html").
 			Funcs(template.FuncMap(funcMap)).
 			ParseFS(assets, "templates/layout.html", "templates/"+p+".html"))
@@ -39,6 +39,8 @@ type Deps struct {
 	Store *store.Store
 	Jobs  JobTrigger
 	Now   func() time.Time
+	// DataDir overrides store-derived report storage when set.
+	DataDir string
 }
 
 // Server implements http.Handler.
@@ -99,6 +101,11 @@ func New(d Deps) http.Handler {
 	s.mux.HandleFunc("GET /audit", s.handleAudit)
 	s.mux.HandleFunc("POST /scans", s.handleScanTrigger)
 	s.mux.HandleFunc("POST /scans/{id}/cancel", s.handleScanCancel)
+	s.mux.HandleFunc("GET /reports", s.handleReports)
+	s.mux.HandleFunc("POST /reports", s.handleReportCreate)
+	s.mux.HandleFunc("GET /reports/{id}", s.handleReportDetail)
+	s.mux.HandleFunc("POST /reports/{id}/delete", s.handleReportDelete)
+	s.mux.HandleFunc("GET /reports/{id}/download", s.handleReportDownload)
 	s.mux.HandleFunc("POST /findings/{id}/ack", s.handleFindingAck)
 	s.mux.HandleFunc("POST /findings/{id}/snooze", s.handleFindingSnooze)
 	s.mux.HandleFunc("POST /findings/{id}/reopen", s.handleFindingReopen)

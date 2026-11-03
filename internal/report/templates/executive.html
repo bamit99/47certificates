@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>47c executive summary — scan #{{.ScanID}}</title>
+<style>body{font-family:sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem;color:#111}h1{border-bottom:2px solid #111;padding-bottom:.5rem}.cards{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0}.card{border:1px solid #ddd;border-radius:6px;padding:.75rem 1.25rem;min-width:9rem}.card b{display:block;font-size:1.4rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border-bottom:1px solid #ddd;text-align:left;padding:.4rem .5rem;font-size:.875rem}.violation{color:#b91c1c}.grandfathered{color:#b45309}.expiring{color:#b45309}.ok{color:#166534}</style>
+</head><body>
+<h1>47-day TLS certificate impact</h1>
+<p><strong>Executive summary</strong> for <a href="#">scan #{{.ScanID}}</a></p>
+
+<div class="cards">
+<div class="card"><span>Certificates observed</span><b>{{.Total}}</b></div>
+<div class="card"><span>Violations</span><b class="violation">{{index .Counts "violation"}}</b></div>
+<div class="card"><span>Grandfathered</span><b class="grandfathered">{{index .Counts "grandfathered"}}</b></div>
+<div class="card"><span>Expiring ≤30d</span><b class="expiring">{{index .Counts "expiring"}}</b></div>
+<div class="card"><span>Above 47-day target</span><b>{{index .Counts "target"}}</b></div>
+<div class="card"><span>Compliant</span><b class="ok">{{index .Counts "ok"}}</b></div>
+</div>
+
+<h2>Delta</h2>
+<p>{{.Delta.Sentence}}</p>
+
+<h2>Action items</h2>
+<table>
+<thead><tr><th>Fingerprint</th><th>Subject</th><th>Lifetime</th><th>Bucket</th><th>Host</th></tr></thead>
+<tbody>
+{{range .Public}}{{if hasFindings .}}<tr>
+<td><code>{{.ShortFP}}…</code></td>
+<td>{{.Subject}}</td>
+<td>{{.LifetimeDays}}d</td>
+<td class="{{.Bucket}}">{{.Bucket}}</td>
+<td>{{.Host}}</td>
+</tr>{{end}}{{else}}<tr><td colspan="5">None — every observed certificate is compliant.</td></tr>{{end}}
+</tbody>
+</table>
+
+{{if .Private}}
+<h2>Appendix: non-public observations ({{len .Private}})</h2>
+<p>These chains did not anchor in a public root. They are out of scope for the 47-day analysis.</p>
+<table>
+<thead><tr><th>Fingerprint</th><th>Subject</th><th>Host</th><th>Trust</th></tr></thead>
+<tbody>
+{{range .Private}}<tr><td><code>{{.ShortFP}}…</code></td><td>{{.Subject}}</td><td>{{.Host}}</td><td>{{.Trust}}</td></tr>{{end}}
+</tbody>
+</table>
+{{end}}
+
+{{template "provenance" .}}
+</body></html>

@@ -1,0 +1,43 @@
+{{define "content"}}
+<h1>Reports</h1>
+
+<h2>Generate a report</h2>
+<form method="post" action="/reports" class="filter-bar" style="align-items:flex-end">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<p><label>Kind<br>
+<select name="kind">
+<option value="executive">Executive summary</option>
+<option value="worklist">Worklist</option>
+<option value="inventory">Inventory</option>
+<option value="domain">Domain</option>
+</select></label></p>
+<p><label>Scan<br>
+<select name="scan_id">
+{{range .Scans}}<option value="{{.ID}}">#{{.ID}} — {{.Status}} — {{.StartedAt.Format "2006-01-02 15:04"}}</option>{{end}}
+</select></label></p>
+<p><label>Domain (domain kind only)<br>
+<input type="text" name="domain" placeholder="example.com" autocomplete="off"></label></p>
+<button type="submit">Generate</button>
+</form>
+
+<h2>Recent reports</h2>
+{{if .Reports}}
+<table>
+<thead><tr><th>ID</th><th>Kind</th><th>Scan</th><th>Status</th><th>Created</th><th></th></tr></thead>
+<tbody>
+{{range .Reports}}
+<tr>
+<td><a href="/reports/{{.ID}}">#{{.ID}}</a></td>
+<td>{{.Kind}}</td>
+<td><a href="/scans/{{.ScanID}}">#{{.ScanID}}</a></td>
+<td>{{.Status}}</td>
+<td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+<td><a href="/reports/{{.ID}}">view</a></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>No reports yet.</p>
+{{end}}
+{{end}}

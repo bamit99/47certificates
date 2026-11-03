@@ -1,0 +1,30 @@
+{{define "content"}}
+<h1>Report #{{.Report.ID}}</h1>
+<dl class="meta">
+<dt>Kind</dt><dd>{{.Report.Kind}}</dd>
+<dt>Scan</dt><dd><a href="/scans/{{.Report.ScanID}}">#{{.Report.ScanID}}</a></dd>
+<dt>Status</dt><dd>{{.Report.Status}}</dd>
+<dt>Created</dt><dd>{{.Report.CreatedAt.Format "2006-01-02 15:04:05 UTC"}}</dd>
+<dt>Finished</dt><dd>{{with .Report.FinishedAt}}{{.Format "2006-01-02 15:04:05 UTC"}}{{else}}—{{end}}</dd>
+<dt>Size</dt><dd>{{.Report.SizeBytes}} bytes</dd>
+<dt>SHA-256</dt><dd><code>{{.Report.SHA256}}</code></dd>
+</dl>
+
+{{if eq .Report.Status "done"}}
+<p>
+<a href="/reports/{{.Report.ID}}/download?format=html">HTML</a> ·
+<a href="/reports/{{.Report.ID}}/download?format=csv">CSV</a> ·
+<a href="/reports/{{.Report.ID}}/download?format=json">JSON</a> ·
+<a href="/reports/{{.Report.ID}}/download?format=zip">ZIP</a>
+</p>
+<form method="post" action="/reports/{{.Report.ID}}/delete" onsubmit="return confirm('Delete report #{{.Report.ID}}? This cannot be undone.')">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button type="submit">Delete report</button>
+</form>
+{{else if eq .Report.Status "failed"}}
+<p role="alert">Generation failed: {{.Report.Error}}</p>
+{{else}}
+<p>Report is generating. This page refreshes automatically every 2 seconds.</p>
+<script>setTimeout(() => window.location.reload(), 2000)</script>
+{{end}}
+{{end}}
