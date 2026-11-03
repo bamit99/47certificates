@@ -31,7 +31,7 @@ func NewCA(t *testing.T) (*x509.Certificate, *ecdsa.PrivateKey) {
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
 		Subject:               pkix.Name{CommonName: "47c test root", Organization: []string{"47c test"}},
-		NotBefore:             time.Now().Add(-24 * time.Hour),
+		NotBefore:             time.Now().Add(-10 * 365 * 24 * time.Hour),
 		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
