@@ -13,12 +13,15 @@ import (
 
 // FindingView is a persisted finding interpreted for display.
 type FindingView struct {
-	Type     string         `json:"type"`
-	Status   string         `json:"status"`
-	Detail   map[string]any `json:"detail,omitempty"`
-	Severity string         `json:"severity"`
-	Bucket   string         `json:"bucket"`
-	Sentence string         `json:"sentence"`
+	ID            int64          `json:"id"`
+	Type          string         `json:"type"`
+	Status        string         `json:"status"`
+	SnoozeUntil   *time.Time     `json:"snooze_until,omitempty"`
+	Detail        map[string]any `json:"detail,omitempty"`
+	Severity      string         `json:"severity"`
+	Bucket        string         `json:"bucket"`
+	Sentence      string         `json:"sentence"`
+	EffectiveOpen bool           `json:"effective_open"`
 }
 
 // CertView is a certificate with derived classification.
@@ -42,6 +45,9 @@ type CertView struct {
 	Bucket       string        `json:"bucket"`
 	Severity     string        `json:"severity"`
 	DaysLeft     int           `json:"days_left"`
+	OpenCount    int           `json:"open_count"`
+	AckCount     int           `json:"ack_count"`
+	SnoozeCount  int           `json:"snooze_count"`
 	ID           int64         `json:"-"`
 }
 
@@ -90,8 +96,18 @@ func buildCertView(c store.CertSummary, now time.Time) CertView {
 	for _, f := range c.Findings {
 		v.Findings = append(v.Findings, buildFindingView(f, now))
 	}
-	v.Bucket = bucketOfViews(v.Findings)
-	v.Severity = severityOfViews(v.Findings)
+	v.Bucket = bucketOfViews(openViews(v.Findings))
+	v.Severity = severityOfViews(openViews(v.Findings))
+	for _, f := range v.Findings {
+		switch {
+		case f.EffectiveOpen:
+			v.OpenCount++
+		case f.Status == "ack":
+			v.AckCount++
+		case f.Status == "snoozed":
+			v.SnoozeCount++
+		}
+	}
 	return v
 }
 
@@ -106,12 +122,54 @@ func buildFindingView(f store.Finding, now time.Time) FindingView {
 	}
 	xf := x509eval.Finding{Type: f.Type, Detail: detail}
 	return FindingView{
-		Type:     f.Type,
-		Status:   f.Status,
-		Detail:   detail,
-		Severity: x509eval.Severity(xf, now),
-		Bucket:   x509eval.Bucket([]x509eval.Finding{xf}),
-		Sentence: describe(xf),
+		ID:            f.ID,
+		Type:          f.Type,
+		Status:        f.Status,
+		SnoozeUntil:   f.SnoozeUntil,
+		Detail:        detail,
+		Severity:      x509eval.Severity(xf, now),
+		Bucket:        x509eval.Bucket([]x509eval.Finding{xf}),
+		Sentence:      describe(xf),
+		EffectiveOpen: effectiveOpen(f.Status, f.SnoozeUntil, now),
+	}
+}
+
+// effectiveOpen reports whether a finding should count as open at now. A
+// snoozed finding comes back automatically when its snooze expires.
+func effectiveOpen(status string, until *time.Time, now time.Time) bool {
+	if status == "open" {
+		return true
+	}
+	if status == "snoozed" && until != nil && !until.After(now) {
+		return true
+	}
+	return false
+}
+
+// openViews returns only findings that count as open at read time.
+func openViews(fs []FindingView) []FindingView {
+	var out []FindingView
+	for _, f := range fs {
+		if f.EffectiveOpen {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// matchStatus reports whether a certificate view matches a ?status= filter.
+func matchStatus(v CertView, status string) bool {
+	switch status {
+	case "", "open":
+		return v.OpenCount > 0
+	case "acked":
+		return v.AckCount > 0
+	case "snoozed":
+		return v.SnoozeCount > 0
+	case "all":
+		return true
+	default:
+		return v.OpenCount > 0
 	}
 }
 

@@ -3,6 +3,12 @@
 
 <form method="get" action="/certs" class="filter-bar">
 <input type="text" name="q" value="{{.Query}}" placeholder="Search fingerprint, subject, issuer, SAN">
+<select name="status">
+<option value="open" {{if eq .Status "open"}}selected{{end}}>Open</option>
+<option value="acked" {{if eq .Status "acked"}}selected{{end}}>Acknowledged</option>
+<option value="snoozed" {{if eq .Status "snoozed"}}selected{{end}}>Snoozed</option>
+<option value="all" {{if eq .Status "all"}}selected{{end}}>All</option>
+</select>
 <select name="bucket">
 <option value="" {{if eq .Bucket ""}}selected{{end}}>All buckets</option>
 {{range .BucketOptions}}
@@ -30,9 +36,9 @@
 </tbody>
 </table>
 <div class="pagination">
-{{if .PrevPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;page={{.PrevPage}}{{if .Retired}}&amp;retired=1{{end}}">Prev</a>{{end}}
+{{if .PrevPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;status={{.Status}}&amp;page={{.PrevPage}}{{if .Retired}}&amp;retired=1{{end}}">Prev</a>{{end}}
 <span>Page {{.Page}} / {{.Pages}}</span>
-{{if .NextPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;page={{.NextPage}}{{if .Retired}}&amp;retired=1{{end}}">Next</a>{{end}}
+{{if .NextPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;status={{.Status}}&amp;page={{.NextPage}}{{if .Retired}}&amp;retired=1{{end}}">Next</a>{{end}}
 </div>
 {{else}}
 <p>No certificates match.</p>

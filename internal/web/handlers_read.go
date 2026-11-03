@@ -103,7 +103,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	sortCertViews(active)
 	expiring := make([]CertView, 0, 10)
 	for _, v := range active {
-		if v.DaysLeft <= 60 {
+		if v.DaysLeft <= 60 && v.OpenCount > 0 {
 			expiring = append(expiring, v)
 		}
 		if len(expiring) == 10 {
@@ -135,6 +135,10 @@ func (s *Server) handleCerts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query().Get("q")
 	bucket := r.URL.Query().Get("bucket")
+	status := r.URL.Query().Get("status")
+	if status == "" {
+		status = "open"
+	}
 	retired := r.URL.Query().Get("retired") == "1"
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
@@ -149,6 +153,9 @@ func (s *Server) handleCerts(w http.ResponseWriter, r *http.Request) {
 	filtered := make([]CertView, 0, len(views))
 	for _, v := range views {
 		if !retired && v.Retired {
+			continue
+		}
+		if !matchStatus(v, status) {
 			continue
 		}
 		if bucket != "" && v.Bucket != bucket {
@@ -182,6 +189,7 @@ func (s *Server) handleCerts(w http.ResponseWriter, r *http.Request) {
 		Certs         []CertView
 		Bucket        string
 		Query         string
+		Status        string
 		Retired       bool
 		Page          int
 		Pages         int
@@ -196,6 +204,7 @@ func (s *Server) handleCerts(w http.ResponseWriter, r *http.Request) {
 		Certs:         pageCerts,
 		Bucket:        bucket,
 		Query:         q,
+		Status:        status,
 		Retired:       retired,
 		Page:          page,
 		Pages:         pages,

@@ -99,6 +99,9 @@ func New(d Deps) http.Handler {
 	s.mux.HandleFunc("GET /audit", s.handleAudit)
 	s.mux.HandleFunc("POST /scans", s.handleScanTrigger)
 	s.mux.HandleFunc("POST /scans/{id}/cancel", s.handleScanCancel)
+	s.mux.HandleFunc("POST /findings/{id}/ack", s.handleFindingAck)
+	s.mux.HandleFunc("POST /findings/{id}/snooze", s.handleFindingSnooze)
+	s.mux.HandleFunc("POST /findings/{id}/reopen", s.handleFindingReopen)
 	s.mux.HandleFunc("POST /logout", s.handleLogout)
 	return s
 }

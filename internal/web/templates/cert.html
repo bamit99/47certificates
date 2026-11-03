@@ -22,8 +22,17 @@
 <ul class="findings">
 {{range .Cert.Findings}}
 <li>
-<div><strong>{{.Type}}</strong><br>{{.Sentence}}</div>
+<div>
+<strong>{{.Type}}</strong>
+{{if eq .Status "open"}}<span class="badge medium">open</span>{{else if eq .Status "ack"}}<span class="badge info">acked</span>{{else if eq .Status "snoozed"}}<span class="badge info">snoozed{{with .SnoozeUntil}} until {{when .}}{{end}}</span>{{end}}
+<br>{{.Sentence}}
+</div>
+<span class="actions" style="display:flex;gap:0.5rem;align-items:center">
+{{if ne .Status "ack"}}<form method="post" action="/findings/{{.ID}}/ack" style="margin:0;display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="next" value="/certs/{{$.Cert.Fingerprint}}"><input type="text" name="note" placeholder="note" size="12" style="padding:0.25rem"><button type="submit">Ack</button></form>{{end}}
+{{if ne .Status "snoozed"}}<form method="post" action="/findings/{{.ID}}/snooze" style="margin:0;display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="next" value="/certs/{{$.Cert.Fingerprint}}"><select name="snooze_days"><option value="1">1 day</option><option value="7" selected>7 days</option><option value="30">30 days</option></select><button type="submit">Snooze</button></form>{{end}}
+{{if ne .Status "open"}}<form method="post" action="/findings/{{.ID}}/reopen" style="margin:0;display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="next" value="/certs/{{$.Cert.Fingerprint}}"><button type="submit">Reopen</button></form>{{end}}
 <span class="badge {{.Severity}}">{{.Severity}}</span>
+</span>
 </li>
 {{end}}
 </ul>

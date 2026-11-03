@@ -11,9 +11,11 @@ import (
 
 // Finding is one persisted finding row, without interpretation.
 type Finding struct {
-	Type   string
-	Detail string
-	Status string
+	ID          int64
+	Type        string
+	Detail      string
+	Status      string
+	SnoozeUntil *time.Time
 }
 
 // CertSummary is a certificate with its findings, for read paths.
@@ -108,7 +110,7 @@ func (s *Store) ListCerts(ctx context.Context) ([]CertSummary, error) {
 		return nil, err
 	}
 
-	fs, err := s.db.QueryContext(ctx, `SELECT cert_id, type, COALESCE(detail_json, '{}'), status FROM findings`)
+	fs, err := s.db.QueryContext(ctx, `SELECT cert_id, id, type, COALESCE(detail_json, '{}'), status, snooze_until FROM findings`)
 	if err != nil {
 		return nil, err
 	}
@@ -117,9 +119,14 @@ func (s *Store) ListCerts(ctx context.Context) ([]CertSummary, error) {
 		var (
 			certID int64
 			f      Finding
+			sz     sql.NullInt64
 		)
-		if err := fs.Scan(&certID, &f.Type, &f.Detail, &f.Status); err != nil {
+		if err := fs.Scan(&certID, &f.ID, &f.Type, &f.Detail, &f.Status, &sz); err != nil {
 			return nil, err
+		}
+		if sz.Valid {
+			t := fromUnix(sz.Int64)
+			f.SnoozeUntil = &t
 		}
 		if i, ok := byID[certID]; ok {
 			out[i].Findings = append(out[i].Findings, f)
