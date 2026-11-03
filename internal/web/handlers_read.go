@@ -35,12 +35,17 @@ func (s *Server) base(r *http.Request, title string) pageData {
 }
 
 func (s *Server) render(w http.ResponseWriter, page string, data any) {
+	s.renderStatus(w, page, http.StatusOK, data)
+}
+
+func (s *Server) renderStatus(w http.ResponseWriter, page string, status int, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	t, ok := viewTemplates[page]
 	if !ok {
 		http.Error(w, "unknown page: "+page, http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(status)
 	if err := t.ExecuteTemplate(w, "layout", data); err != nil {
 		http.Error(w, "template: "+err.Error(), http.StatusInternalServerError)
 	}

@@ -18,7 +18,7 @@ var assets embed.FS
 var viewTemplates = map[string]*template.Template{}
 
 func init() {
-	for _, p := range []string{"dashboard", "certs", "cert", "domains", "domain", "scans", "scan"} {
+	for _, p := range []string{"dashboard", "certs", "cert", "domains", "domain", "scans", "scan", "scope", "settings", "audit"} {
 		t := template.Must(template.New("layout.html").
 			Funcs(template.FuncMap(funcMap)).
 			ParseFS(assets, "templates/layout.html", "templates/"+p+".html"))
@@ -94,6 +94,11 @@ func New(d Deps) http.Handler {
 	s.mux.HandleFunc("GET /api/scans", s.handleAPIScans)
 	s.mux.HandleFunc("GET /scope", s.handleScopeGet)
 	s.mux.HandleFunc("POST /scope", s.handleScopePost)
+	s.mux.HandleFunc("GET /settings", s.handleSettingsGet)
+	s.mux.HandleFunc("POST /settings", s.handleSettingsPost)
+	s.mux.HandleFunc("GET /audit", s.handleAudit)
+	s.mux.HandleFunc("POST /scans", s.handleScanTrigger)
+	s.mux.HandleFunc("POST /scans/{id}/cancel", s.handleScanCancel)
 	s.mux.HandleFunc("POST /logout", s.handleLogout)
 	return s
 }
@@ -148,15 +153,4 @@ func UserFrom(ctx context.Context) (store.User, bool) {
 func CSRFFrom(ctx context.Context) string {
 	t, _ := ctx.Value(csrfKey).(string)
 	return t
-}
-
-// --- placeholder replaced by Task 12 ---
-
-func (s *Server) handleScopeGet(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte("scope\n"))
-}
-
-func (s *Server) handleScopePost(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
 }

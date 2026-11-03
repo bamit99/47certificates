@@ -1,0 +1,11 @@
+{{define "content"}}
+<h1>Scope</h1>
+<p>Allowlist: one <code>kind:value</code> per line. <code>include</code> grants a domain and all subdomains; <code>exclude</code> always wins; <code>seed</code> is a discovery hint that must sit inside an include.</p>
+<form method="post" action="/scope">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<textarea name="entries" rows="20" cols="60" spellcheck="false">{{.ScopeLines}}</textarea>
+<p><button type="submit">Replace scope</button></p>
+</form>
+{{if .Saved}}<p role="status">Scope saved.</p>{{end}}
+{{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
+{{end}}

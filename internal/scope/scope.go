@@ -66,7 +66,7 @@ func New(entries []Entry) (*Set, error) {
 	}
 	for _, seed := range s.seeds {
 		if !s.Match(seed) {
-			return nil, fmt.Errorf("scope: seed %q is not inside any include", seed)
+			return nil, fmt.Errorf("scope: seed %q must be inside an include", seed)
 		}
 	}
 	return s, nil

@@ -1,0 +1,14 @@
+{{define "content"}}
+<h1>Settings</h1>
+<form method="post" action="/settings">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+{{range .Fields}}
+<p><label>{{.Label}}<br>
+<input type="text" name="{{.Key}}" value="{{.Value}}" autocomplete="off">
+</label></p>
+{{end}}
+<p><button type="submit">Save settings</button></p>
+</form>
+{{if .Saved}}<p role="status">Settings saved.</p>{{end}}
+{{if .Error}}<div role="alert"><ul>{{range .Error}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+{{end}}

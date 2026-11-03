@@ -111,8 +111,8 @@ func TestCSRFRequiredForMutations(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("wrong token status = %d", rec.Code)
 	}
-	rec = post(s, "/scope", url.Values{"value": {"x"}}, cookie, s.csrfToken(cookie.Value))
-	if rec.Code != http.StatusNoContent {
+	rec = post(s, "/scope", url.Values{"entries": {"include:example.com\n"}}, cookie, s.csrfToken(cookie.Value))
+	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("valid token status = %d", rec.Code)
 	}
 }
