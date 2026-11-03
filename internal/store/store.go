@@ -27,6 +27,17 @@ var migrations = []struct {
 	{2, "migrations/0002_cert_raw.sql"},
 }
 
+// LatestSchemaVersion returns the highest migration version the binary knows.
+func LatestSchemaVersion() int {
+	latest := 0
+	for _, m := range migrations {
+		if m.version > latest {
+			latest = m.version
+		}
+	}
+	return latest
+}
+
 // lockStaleAfter lets a crashed holder be reclaimed.
 const lockStaleAfter = 30 * time.Minute
 

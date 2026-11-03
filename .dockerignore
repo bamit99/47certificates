@@ -1,0 +1,9 @@
+data/
+.superpowers/
+.git/
+*.db
+*.db-wal
+*.db-shm
+47c
+Dockerfile
+docker-compose.yml

@@ -1,0 +1,21 @@
+services:
+  47c:
+    image: 47c:dev
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - 47c-data:/data
+    # First boot only: creates the initial admin account when no user exists.
+    # Remove or rotate after first login.
+    # environment:
+    #   ADMIN_PASSWORD: choose-a-long-random-password
+    # The listen address is non-loopback inside the container, so plain HTTP
+    # is allowed only because the host binding above pins it to 127.0.0.1.
+    command: ["serve", "--insecure-http"]
+
+volumes:
+  47c-data:
