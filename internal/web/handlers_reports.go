@@ -3,8 +3,6 @@ package web
 import (
 	"archive/zip"
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -79,89 +77,16 @@ func (s *Server) handleReportCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	domain := strings.TrimSpace(r.PostFormValue("domain"))
 
-	params := fmt.Sprintf(`{"domain":%q}`, domain)
-	reportID, err := s.deps.Store.CreateReport(ctx, scanID, string(kind), &u.ID, []byte(params))
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	artifacts, genErr := report.Generate(ctx, s.deps.Store, reportID, scanID, kind, domain, s.now())
+	rp, genErr := report.GenerateAndStore(ctx, s.deps.Store, filepath.Join(s.dataDir(), "reports"), kind, scanID, domain, &u.ID, s.now())
 	if genErr != nil {
-		_ = s.deps.Store.FailReport(ctx, reportID, genErr.Error())
-		_ = s.deps.Store.Audit(ctx, &u.ID, "report.fail", strconv.FormatInt(reportID, 10),
+		_ = s.deps.Store.Audit(ctx, &u.ID, "report.fail", strconv.FormatInt(scanID, 10),
 			[]byte(fmt.Sprintf(`{"error":%q}`, genErr.Error())), clientIP(r))
 		http.Error(w, "report generation failed: "+genErr.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Write the artifacts under <DataDir>/reports/<id>/ and record their hashes.
-	if err := s.writeReportArtifacts(reportID, artifacts); err != nil {
-		_ = s.deps.Store.FailReport(ctx, reportID, err.Error())
-		http.Error(w, "report write failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	paths := []string{
-		filepath.Join(s.reportsDir(reportID), "report.html"),
-		filepath.Join(s.reportsDir(reportID), "report.csv"),
-		filepath.Join(s.reportsDir(reportID), "report.json"),
-	}
-	sizeTotal, shaJSON, err := hashReportFiles(paths[0], paths[1], paths[2])
-	if err != nil {
-		_ = s.deps.Store.FailReport(ctx, reportID, err.Error())
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if err := s.deps.Store.SaveReportFiles(ctx, reportID, paths[0], paths[1], paths[2], sizeTotal, shaJSON); err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	_ = s.deps.Store.Audit(ctx, &u.ID, "report.generate", strconv.FormatInt(reportID, 10),
+	_ = s.deps.Store.Audit(ctx, &u.ID, "report.generate", strconv.FormatInt(rp.ID, 10),
 		[]byte(fmt.Sprintf(`{"kind":%q,"scan_id":%d}`, kind, scanID)), clientIP(r))
-	http.Redirect(w, r, "/reports/"+strconv.FormatInt(reportID, 10), http.StatusSeeOther)
-}
-
-func (s *Server) writeReportArtifacts(id int64, a report.Artifacts) error {
-	dir := s.reportsDir(id)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	files := map[string][]byte{
-		"report.html": a.HTML,
-		"report.csv":  a.CSV,
-		"report.json": a.JSON,
-	}
-	for name, data := range files {
-		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, data, 0o600); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func hashReportFiles(htmlPath, csvPath, jsonPath string) (int64, string, error) {
-	type part struct {
-		name string
-		path string
-	}
-	parts := []part{{"html", htmlPath}, {"csv", csvPath}, {"json", jsonPath}}
-	hashes := map[string]string{}
-	var total int64
-	for _, p := range parts {
-		data, err := os.ReadFile(p.path)
-		if err != nil {
-			return 0, "", err
-		}
-		sum := sha256.Sum256(data)
-		hashes[p.name] = hex.EncodeToString(sum[:])
-		total += int64(len(data))
-	}
-	shaSum := sha256.Sum256([]byte(fmt.Sprintf("%s %s %s", hashes["html"], hashes["csv"], hashes["json"])))
-	shaJSON := fmt.Sprintf(`{"combined":%q,"html":%q,"csv":%q,"json":%q}`,
-		hex.EncodeToString(shaSum[:]), hashes["html"], hashes["csv"], hashes["json"])
-	return total, shaJSON, nil
+	http.Redirect(w, r, "/reports/"+strconv.FormatInt(rp.ID, 10), http.StatusSeeOther)
 }
 
 func (s *Server) handleReportDetail(w http.ResponseWriter, r *http.Request) {
