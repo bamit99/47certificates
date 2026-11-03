@@ -35,11 +35,12 @@ type Cert struct {
 	// CA's ACME directory, not in the certificate. Kept for a later lookup.
 	ARIURL string
 	Raw    []byte
+	Chain  [][]byte
 }
 
 // Parse extracts metadata from a leaf DER. chainDER is accepted so callers can
 // pass the sibling certs without a second signature, but parsing is per leaf.
-func Parse(leafDER []byte, _ [][]byte) (Cert, error) {
+func Parse(leafDER []byte, chainDER [][]byte) (Cert, error) {
 	leaf, err := x509.ParseCertificate(leafDER)
 	if err != nil {
 		return Cert{}, fmt.Errorf("x509eval: parse leaf: %w", err)
@@ -59,6 +60,7 @@ func Parse(leafDER []byte, _ [][]byte) (Cert, error) {
 		IsCA:         leaf.IsCA,
 		IssuingURLs:  append([]string{}, leaf.IssuingCertificateURL...),
 		Raw:          append([]byte{}, leafDER...),
+		Chain:        append([][]byte{}, chainDER...),
 	}
 	if len(leaf.OCSPServer) > 0 {
 		c.OCSPURL = leaf.OCSPServer[0]
