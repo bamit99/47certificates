@@ -15,10 +15,11 @@ import (
 
 // LeafOpts controls a generated leaf certificate.
 type LeafOpts struct {
-	DNSNames  []string
-	NotBefore time.Time
-	NotAfter  time.Time
-	IsCA      bool
+	DNSNames        []string
+	NotBefore       time.Time
+	NotAfter        time.Time
+	IsCA            bool
+	IssuingCertURLs []string
 }
 
 // NewCA returns a self-signed ECDSA P-256 CA.
@@ -77,6 +78,7 @@ func NewLeaf(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, opts L
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  opts.IsCA,
+		IssuingCertificateURL: opts.IssuingCertURLs,
 	}
 	if opts.IsCA {
 		tmpl.KeyUsage |= x509.KeyUsageCertSign
