@@ -1,0 +1,144 @@
+// Package web serves the 47c UI and its authenticated API.
+package web
+
+import (
+	"context"
+	"fmt"
+	"html/template"
+	"net/http"
+	"time"
+
+	"github.com/amit/47certificates/internal/scan"
+	"github.com/amit/47certificates/internal/store"
+)
+
+// JobTrigger is the scan runner surface the UI needs. It is defined here so
+// the web package does not depend on the jobs implementation.
+type JobTrigger interface {
+	TriggerScan(ctx context.Context, trigger string, userID *int64) (int64, error)
+	Cancel(scanID int64) error
+	Subscribe(scanID int64) (<-chan scan.Progress, func())
+}
+
+// Deps are the collaborators the server needs.
+type Deps struct {
+	Store *store.Store
+	Jobs  JobTrigger
+	Now   func() time.Time
+}
+
+// Server implements http.Handler.
+type Server struct {
+	deps      Deps
+	mux       *http.ServeMux
+	secret    []byte
+	limiter   *loginLimiter
+	loginTmpl *template.Template
+}
+
+type ctxKey int
+
+const (
+	userKey ctxKey = iota
+	sessionKey
+	csrfKey
+)
+
+// New builds the web handler.
+const loginPage = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Sign in - 47c</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head><body>
+<h1>47c</h1>
+{{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
+<form method="post" action="/login">
+<label>Username <input name="username" autocomplete="username" required></label>
+<label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+<button type="submit">Sign in</button>
+</form>
+</body></html>`
+
+func New(d Deps) http.Handler {
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	s := &Server{deps: d, limiter: newLoginLimiter()}
+	s.secret = loadSecret(d.Store)
+	s.loginTmpl = template.Must(template.New("login").Parse(loginPage))
+	s.mux = http.NewServeMux()
+	s.mux.HandleFunc("GET /{$}", s.handleDashboard)
+	s.mux.HandleFunc("GET /scope", s.handleScopeGet)
+	s.mux.HandleFunc("POST /scope", s.handleScopePost)
+	s.mux.HandleFunc("POST /logout", s.handleLogout)
+	return s
+}
+
+func (s *Server) now() time.Time { return s.deps.Now() }
+
+// ServeHTTP applies authentication and CSRF checks, then dispatches.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/login" {
+		s.handleLogin(w, r)
+		return
+	}
+	if r.URL.Path == "/healthz" {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+		return
+	}
+
+	cookie, err := r.Cookie(cookieName)
+	if err != nil {
+		s.redirectLogin(w, r)
+		return
+	}
+	user, err := s.deps.Store.SessionUser(r.Context(), cookie.Value, s.now())
+	if err != nil {
+		s.redirectLogin(w, r)
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+		if !s.csrfValid(r, cookie.Value) {
+			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+			return
+		}
+	}
+
+	ctx := context.WithValue(r.Context(), userKey, user)
+	ctx = context.WithValue(ctx, sessionKey, cookie.Value)
+	ctx = context.WithValue(ctx, csrfKey, s.csrfToken(cookie.Value))
+	s.mux.ServeHTTP(w, r.WithContext(ctx))
+}
+
+func (s *Server) redirectLogin(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// UserFrom returns the authenticated user from a request context.
+func UserFrom(ctx context.Context) (store.User, bool) {
+	u, ok := ctx.Value(userKey).(store.User)
+	return u, ok
+}
+
+func CSRFFrom(ctx context.Context) string {
+	t, _ := ctx.Value(csrfKey).(string)
+	return t
+}
+
+// --- placeholders replaced by later tasks ---
+
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	u, _ := UserFrom(r.Context())
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, "<!doctype html><html><head><title>47c</title></head><body><h1>47c</h1><p>Signed in as %s</p></body></html>",
+		template.HTMLEscapeString(u.Username))
+}
+
+func (s *Server) handleScopeGet(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("scope\n"))
+}
+
+func (s *Server) handleScopePost(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
