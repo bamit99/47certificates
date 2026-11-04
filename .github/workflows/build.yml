@@ -38,15 +38,20 @@ jobs:
 
       - name: The image must be able to answer for itself
         run: |
+          # The container listens on a non-loopback address inside its own
+          # network, so plain HTTP is allowed only with the acknowledgement.
+          # The published port is pinned to loopback on the runner.
           docker run --rm -d --name 47c-ci -p 127.0.0.1:8099:8080 \
-            -e ADMIN_PASSWORD=ci-test-password 47c:ci
+            -e ADMIN_PASSWORD=ci-test-password 47c:ci serve --insecure-http
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8099/healthz >/dev/null; then
               echo "the container is healthy"
+              docker rm -f 47c-ci
               exit 0
             fi
             sleep 1
           done
           echo "the container never became healthy" >&2
           docker logs 47c-ci >&2
+          docker rm -f 47c-ci
           exit 1
