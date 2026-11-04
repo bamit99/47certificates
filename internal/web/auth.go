@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -115,11 +116,23 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		// A correct password clears the earlier failures from this address.
+		s.limiter.forget(clientIP(r))
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	default:
 		w.Header().Set("Allow", "GET, POST")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// secureRequest reports whether the request reached the server over TLS,
+// either directly or through a terminating proxy that set
+// X-Forwarded-Proto.
+func secureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user store.User) error {
@@ -138,7 +151,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user store
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
+		Secure:   secureRequest(r),
 		Expires:  expires,
 	})
 	return nil
@@ -154,7 +167,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
+		Secure:   secureRequest(r),
 		MaxAge:   -1,
 	})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -184,6 +197,10 @@ func newLoginLimiter() *loginLimiter {
 	return &loginLimiter{hits: map[string][]time.Time{}}
 }
 
+// allow reports whether another attempt from ip is permitted. It records the
+// attempt whether or not the credentials turn out to be right: the limiter
+// exists to slow guessing, and counting successes too keeps a valid
+// credential from being a free way to probe the limit.
 func (l *loginLimiter) allow(ip string, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -201,4 +218,13 @@ func (l *loginLimiter) allow(ip string, now time.Time) bool {
 	}
 	l.hits[ip] = append(kept, now)
 	return true
+}
+
+// forget drops the recorded attempts of an ip. It is called after a
+// successful login so a legitimate operator is not locked out by their own
+// earlier mistakes.
+func (l *loginLimiter) forget(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.hits, ip)
 }

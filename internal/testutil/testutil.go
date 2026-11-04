@@ -90,6 +90,31 @@ func NewLeaf(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, opts L
 	return der, key
 }
 
+// NewSelfSigned returns a self-signed leaf certificate and its private key.
+// A server that offers such a certificate is running a private PKI.
+func NewSelfSigned(t *testing.T, name string) ([]byte, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(42),
+		Subject:               pkix.Name{CommonName: name, Organization: []string{"47c test"}},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(90 * 24 * time.Hour),
+		DNSNames:              []string{name},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der, key
+}
+
 func firstDNS(names []string) string {
 	if len(names) == 0 {
 		return "localhost"

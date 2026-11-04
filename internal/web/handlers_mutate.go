@@ -25,7 +25,7 @@ var settingsSpec = []struct {
 	{"qps", "QPS (probes/second)"},
 	{"timeout", "Timeout (e.g. 10s)"},
 	{"schedule", "Scan schedule (cron)"},
-	{"retention", "Retention (days)"},
+	{"retention", "Retention (scans kept)"},
 	{"report.schedule", "Report schedule (cron)"},
 	{"report.webhook_url", "Report webhook URL"},
 }
@@ -183,7 +183,7 @@ func validateSettings(form url.Values) (map[string]string, []string) {
 		case "retention":
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 0 {
-				errs = append(errs, "retention: non-negative integer days")
+				errs = append(errs, "retention: non-negative number of scans to keep")
 				continue
 			}
 			values[spec.Key] = strconv.Itoa(n)

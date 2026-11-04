@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -260,10 +261,12 @@ func (s *Store) ListScope(ctx context.Context) ([]ScopeEntry, error) {
 
 // DomainHosts returns hostnames in the endpoint inventory under domain.
 func (s *Store) DomainHosts(ctx context.Context, domain string) ([]string, error) {
+	// The LIKE pattern is built from the domain, so the wildcards in it are
+	// escaped: a domain of "%" must not match every hostname.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT hostname FROM endpoints
-		WHERE hostname = ? OR hostname LIKE ?
-		ORDER BY hostname`, domain, "%."+domain)
+		WHERE hostname = ? OR hostname LIKE ? ESCAPE '\'
+		ORDER BY hostname`, domain, "%."+escapeLike(domain)+"%")
 	if err != nil {
 		return nil, err
 	}
@@ -277,4 +280,10 @@ func (s *Store) DomainHosts(ctx context.Context, domain string) ([]string, error
 		out = append(out, h)
 	}
 	return out, rows.Err()
+}
+
+// escapeLike escapes the wildcards of a LIKE pattern.
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
 }

@@ -37,6 +37,13 @@ func Verify(leafDER []byte, chainDER [][]byte, host string, roots *x509.CertPool
 			servedRoot = c
 		}
 	}
+	// A self-signed leaf is its own root. A server that sends only such a
+	// leaf is running a private PKI, which is informational, not a trust
+	// failure: the chain is not "incomplete", there is simply no public
+	// anchor.
+	if servedRoot == nil && isSelfSigned(leaf) {
+		servedRoot = leaf
+	}
 
 	v := Verdict{HostnameValid: leaf.VerifyHostname(host) == nil}
 	if _, err := leaf.Verify(x509.VerifyOptions{
@@ -84,6 +91,11 @@ func Verify(leafDER []byte, chainDER [][]byte, host string, roots *x509.CertPool
 		v.Reason = "incomplete"
 	}
 	return v
+}
+
+// isSelfSigned reports whether the certificate signed itself.
+func isSelfSigned(c *x509.Certificate) bool {
+	return c.CheckSignature(c.SignatureAlgorithm, c.RawTBSCertificate, c.Signature) == nil
 }
 
 // candidateTimes returns instants likely to sit inside both the leaf's and its

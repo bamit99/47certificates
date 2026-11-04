@@ -90,7 +90,7 @@ func buildCertView(c store.CertSummary, now time.Time) CertView {
 		LastSeen:     c.LastSeen,
 		Retired:      c.RetiredAt != nil,
 		HasRaw:       c.HasRaw,
-		DaysLeft:     int(c.NotAfter.Sub(now) / (24 * time.Hour)),
+		DaysLeft:     x509eval.DaysLeft(c.NotAfter, now),
 		ID:           c.ID,
 	}
 	for _, f := range c.Findings {
