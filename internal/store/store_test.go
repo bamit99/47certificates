@@ -107,8 +107,42 @@ func TestScanLockIsExclusive(t *testing.T) {
 	if _, err := s.AcquireScanLock(ctx); !errors.Is(err, ErrScanInProgress) {
 		t.Fatalf("second acquire err = %v", err)
 	}
-	release()
+	release.Release()
 	if _, err := s.AcquireScanLock(ctx); err != nil {
 		t.Fatalf("after release: %v", err)
+	}
+}
+
+// A refresh extends the lease of a live lock, and a lock that was reclaimed
+// by another holder can no longer refresh or release itself.
+func TestScanLockRefreshAndRelease(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	lock, err := s.AcquireScanLock(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := lock.Refresh(ctx)
+	if err != nil || !ok {
+		t.Fatalf("refresh = %v, %v", ok, err)
+	}
+	// Simulate a stale reclaim by another holder.
+	if _, err := s.db.Exec(`UPDATE scan_lock SET holder = 'other'`); err != nil {
+		t.Fatal(err)
+	}
+	ok, err = lock.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("a reclaimed lock must not refresh")
+	}
+	lock.Release()
+	var holder *string
+	if err := s.db.QueryRow(`SELECT holder FROM scan_lock WHERE id = 1`).Scan(&holder); err != nil {
+		t.Fatal(err)
+	}
+	if holder == nil || *holder != "other" {
+		t.Fatalf("release cleared another holder's lock: %v", holder)
 	}
 }

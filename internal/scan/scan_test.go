@@ -170,11 +170,11 @@ func TestCancelledScanDoesNotRetire(t *testing.T) {
 func TestEngineRefusesWhenLockHeld(t *testing.T) {
 	st := openStore(t)
 	ctx := context.Background()
-	release, err := st.AcquireScanLock(ctx)
+	lock, err := st.AcquireScanLock(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer release()
+	defer lock.Release()
 
 	set, _ := scope.New([]scope.Entry{{Kind: scope.Include, Value: "example.com"}})
 	id, _ := st.BeginScan(ctx, "cli", nil)

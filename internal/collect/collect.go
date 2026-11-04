@@ -6,8 +6,12 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
+	"io"
 	"net"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -67,16 +71,77 @@ func Probe(ctx context.Context, ep Endpoint, opts Options) Observation {
 		if err == nil {
 			break
 		}
+		if !retryable(err) {
+			break
+		}
 	}
 	if err != nil {
 		obs.Err = err
 		return Observation{Endpoint: ep, Err: err}
 	}
 
-	if opts.AIA != nil && len(obs.LeafDER) > 0 {
+	if opts.AIA != nil && len(obs.LeafDER) > 0 && chainIncomplete(obs.LeafDER, obs.ChainDER) {
+		// The served chain does not contain the issuer of the leaf, so it
+		// cannot build. Try caIssuers for the missing intermediate.
 		obs.ChainDER = append(obs.ChainDER, fetchAIA(ctx, opts.AIA, obs.LeafDER, obs.ChainDER)...)
 	}
 	return obs
+}
+
+// chainIncomplete reports whether the served chain is missing the issuer of
+// the leaf. A server that sends only the leaf, or a chain that stops short
+// of the leaf's issuer, cannot be verified as served.
+func chainIncomplete(leafDER []byte, chainDER [][]byte) bool {
+	leaf, err := x509.ParseCertificate(leafDER)
+	if err != nil {
+		return false
+	}
+	if len(chainDER) == 0 {
+		return true
+	}
+	for _, der := range chainDER {
+		c, err := x509.ParseCertificate(der)
+		if err != nil {
+			continue
+		}
+		if c.Subject.String() == leaf.Issuer.String() {
+			return false
+		}
+	}
+	return true
+}
+
+// retryable reports whether an error deserves one retry.
+//
+// The spec allows one retry on timeout and none on a TLS alert. A dropped
+// connection is neither: it is a transient transport failure, so it is
+// retried like a timeout. A TLS alert is the server's deliberate answer and
+// is final.
+func retryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	// TLS alerts arrive as remote error strings on the handshake.
+	if isTLSAlert(err) {
+		return false
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.EPIPE)
+}
+
+// isTLSAlert reports whether the error is the peer rejecting the handshake
+// with a TLS alert.
+func isTLSAlert(err error) bool {
+	var alert tls.AlertError
+	if errors.As(err, &alert) {
+		return true
+	}
+	return strings.Contains(err.Error(), "remote error: tls:")
 }
 
 func probeOnce(ctx context.Context, ep Endpoint, timeout time.Duration, minVersion uint16) (Observation, error) {

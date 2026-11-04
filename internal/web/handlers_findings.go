@@ -10,11 +10,20 @@ import (
 	"github.com/amit/47certificates/internal/store"
 )
 
+// safeNext returns a path the server is willing to redirect to. Only local
+// absolute paths are allowed, and a backslash is refused because browsers
+// normalise "/\host" into "//host", which would leave the site.
 func safeNext(s string) string {
-	if strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//") {
-		return s
+	if s == "" || !strings.HasPrefix(s, "/") || strings.HasPrefix(s, "//") {
+		return "/certs"
 	}
-	return "/certs"
+	if strings.ContainsAny(s, "\\") {
+		return "/certs"
+	}
+	if !strings.HasPrefix(s, "/certs") && !strings.HasPrefix(s, "/scans") && !strings.HasPrefix(s, "/") {
+		return "/certs"
+	}
+	return s
 }
 
 func (s *Server) handleFindingAck(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +59,7 @@ func (s *Server) handleFindingSnooze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	until := s.now().Add(time.Duration(days) * 24 * time.Hour)
-	if err := s.deps.Store.SnoozeFinding(ctx, id, u.ID, until, strings.TrimSpace(r.PostFormValue("note"))); err != nil {
+	if err := s.deps.Store.SnoozeFinding(ctx, id, u.ID, until, s.now(), strings.TrimSpace(r.PostFormValue("note"))); err != nil {
 		s.findingError(w, r, err)
 		return
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/amit/47certificates/internal/scope"
@@ -101,6 +102,51 @@ func TestRunFallsBackWhenCTFails(t *testing.T) {
 	}
 	if len(got.Warnings) == 0 {
 		t.Fatal("primary failure should be recorded")
+	}
+}
+
+type spySource struct {
+	names  []string
+	called *int
+}
+
+func (s spySource) Names(context.Context, string) ([]string, error) {
+	*s.called++
+	return s.names, nil
+}
+
+func TestRunUsesCTCacheWhenFresh(t *testing.T) {
+	set, _ := scope.New([]scope.Entry{{Kind: scope.Include, Value: "example.com"}})
+	calls := 0
+	got, err := Run(context.Background(), set,
+		spySource{names: []string{"a.example.com"}, called: &calls},
+		fakeResolver{},
+		Options{
+			CachedNames: func(string) ([]string, bool) {
+				return []string{"cached.example.com"}, true
+			},
+			RememberSuccess: func(string, []string) {},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("source queried %d times; cache should suppress", calls)
+	}
+	found := false
+	for _, w := range got.Warnings {
+		if strings.Contains(w, "cache fresh") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected cache-fresh warning, got %v", got.Warnings)
+	}
+	// The cached names must still be discovered: a rescan that dropped them
+	// would look like the certificates were retired.
+	hosts := strings.Join(got.Hosts, ",")
+	if !strings.Contains(hosts, "cached.example.com") {
+		t.Fatalf("cached names were dropped: %v", got.Hosts)
 	}
 }
 

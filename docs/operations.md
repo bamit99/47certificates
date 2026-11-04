@@ -13,7 +13,9 @@ A certificate is judged by the phase in force at its `notBefore` date. Severity 
 
 ## Scope of analysis
 
-Publicly-trusted certificates only. Private CA / internal PKI is **out of scope** and is reported separately as an informational appendix. Chains are verified against an embedded Mozilla root bundle; only chain building, hostname, and validity are checked — CRL/OCSP are never fetched. AIA `caIssuers` fetches (http/https, no redirects, max 3 URLs, 1 MiB cap) are used to recover missing intermediates.
+Publicly-trusted certificates only. Private CA / internal PKI is **out of scope** and is reported separately as an informational appendix. Chains are verified against an embedded Mozilla root bundle; only chain building, hostname, and validity are checked — CRL/OCSP are never fetched.
+
+AIA `caIssuers` fetches (http/https, no redirects, max 3 URLs, 1 MiB cap) are used to recover missing intermediates. The fetch resolves the hostname and refuses to connect to loopback, private or link-local addresses, so a certificate cannot steer the collector at an internal service. The HTTPS transport verifies against the embedded bundle, because the container image has no CA directory.
 
 ## First boot
 
@@ -22,9 +24,11 @@ docker build -t 47c:dev .
 docker compose up -d
 ```
 
-On first boot with `ADMIN_PASSWORD` set in the environment and zero users, the binary creates the `admin` account with that password and logs it. **Remove `ADMIN_PASSWORD` afterwards**; it is a one-time provisioning variable, not a credential store.
+On first boot with `ADMIN_PASSWORD` set in the environment and zero users, the binary creates the `admin` account with that password and logs that it did so. **Remove `ADMIN_PASSWORD` afterwards**; it is a one-time provisioning variable, not a credential store. The password is never written to the log.
 
 Data lives in a named Docker volume (`47c-data`), pre-created with ownership matching the container's `65532:65532` UID. If you prefer a bind mount (`./data:/data`), run `chown -R 65532:65532 ./data` before first start; the scratch image runs as a non-root UID and cannot create `data/47c.db` inside a root-owned directory.
+
+The database file is created with owner-only permissions (`0600`): it holds password hashes, live session ids and the CSRF and webhook secrets.
 
 Without it, create the user with:
 
@@ -36,7 +40,7 @@ The UI is served on `http://127.0.0.1:8080` (host-pinned loopback). The app refu
 
 ## Health
 
-`/47c health` (used by `HEALTHCHECK`) exits 0 when the SQLite database opens read-only and `MAX(version)` in `schema_migrations` matches the binary's embedded latest version (currently 2). The HTTP `GET /healthz` endpoint returns `ok` for external watchdogs.
+`/47c health` (used by `HEALTHCHECK`) exits 0 when the SQLite database opens read-only and `MAX(version)` in `schema_migrations` matches the binary's embedded latest version (currently 6). The HTTP `GET /healthz` endpoint returns `ok` when the database answers and `503` when it does not, so an external watchdog sees a broken database.
 
 ## Backup and restore
 
@@ -67,9 +71,11 @@ Wildcards are coverage metadata only; they are never dialled.
 
 ## Scanning
 
-Trigger from the UI (`/scans`) or the CLI (`/47c scan --scope scope.txt [--out report.csv]`). Scans are single-flight: the web UI and the CLI share a store-level lock and both refuse to double-run. Only `done` scans advance `certs.last_seen` and retire unseen certs; a cancelled scan never looks like mass retirement.
+Trigger from the UI (`/scans`) or the CLI (`/47c scan [--scope scope.txt] [--out report.csv]`). Without `--scope` the CLI scans the allowlist stored in the database, which is the same scope the UI uses. Scans are single-flight: the web UI and the CLI share a store-level lock and both refuse to double-run. The lock is refreshed while a scan runs, so a long scan cannot be overtaken.
 
-Discovery starts from the scope includes and anything crt.sh knows about them (`Cert Spotter` is the fallback source), filters to the allowlist, resolves addresses, and probes with the configured concurrency/QPS.
+Only `done` scans advance `certs.last_seen`, clear `certs.retired_at` and close findings whose condition no longer holds. A cancelled or failed scan persists its observations and progress but never looks like mass retirement.
+
+Discovery starts from the scope includes and anything crt.sh knows about them (`Cert Spotter` is the fallback source), filters to the allowlist, resolves addresses, and probes with the configured concurrency/QPS. CT answers are cached for 6 hours per domain; the cache stores the names it saw, so a rescan inside the window still probes the hosts CT revealed.
 
 ## Phase-boundary behaviour
 
@@ -79,7 +85,11 @@ Severity is derived at read time. When 2027-03-15 arrives, a 120-day cert that w
 
 Kinds: `executive`, `worklist`, `inventory`, `domain`. Formats: HTML, CSV, JSON, ZIP (stored, not deflated). Reports are immutable: after generation the files and their SHA-256 (combined + per-file) are recorded, and only `GET /reports/{id}/download` hands them out. Re-generating creates a new row and new files.
 
-Each report embeds `report_id`, `scan_id`, `generated_at`, `scope` (the current allowlist string), `version` (`dev` until a release build overrides it) and a delta sentence against the previous report of the same kind ("N new certificate, M retired").
+Each report embeds `report_id`, `scan_id`, the scan time, `generated_at`, `scope` (the current allowlist string), `version` (`dev` until a release build overrides it) and a delta sentence against the previous report of the same kind ("N new certificate, M retired"). Every format carries the sentence "publicly-trusted certificates only; private-CA observations are excluded."
+
+Counts are per certificate: a certificate served by ten endpoints is counted once, with its endpoints listed on the row. The CSV endpoint sheet lists every endpoint separately.
+
+The delta compares against the previous report of the same kind using the certificate snapshot stored with that report (`report_snapshots`), so pruning old observations does not corrupt it.
 
 Scheduled reports (`report.schedule`, default `7 4 1 * *`) always use the **newest done scan**; if a newer non-done scan exists, the scheduler records a warning rather than silently using a stale or empty scan.
 
@@ -104,6 +114,8 @@ User-Agent: 47c/1 report delivery
 ```
 
 `webhook_secret` is auto-generated on first delivery and stored in the `settings` table (key `webhook_secret`). Delivery retries 3 times with 1/2/4-second backoff and is recorded in `report_deliveries` (`delivered`/`failed`, with `last_error`). Delivery never blocks the scheduler.
+
+The webhook URL must be `http` or `https`. Link-local addresses (including the cloud metadata endpoint `169.254.169.254`) and `localhost` are refused, and redirects are not followed, so the delivery cannot be steered at an address the operator did not configure. Private LAN addresses are allowed: a report receiver on the operator's own network is a normal deployment.
 
 ## Logs
 

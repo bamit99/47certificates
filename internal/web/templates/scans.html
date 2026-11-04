@@ -1,5 +1,9 @@
 {{define "content"}}
 <h1>Scans</h1>
+<form method="post" action="/scans" style="margin-bottom:1rem">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button type="submit">Run scan now</button>
+</form>
 {{if .Scans}}
 <table>
 <thead><tr><th>ID</th><th>Status</th><th>Trigger</th><th>Started</th><th>Finished</th></tr></thead>

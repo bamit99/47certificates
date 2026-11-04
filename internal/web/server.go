@@ -117,13 +117,13 @@ func (s *Server) now() time.Time { return s.deps.Now() }
 
 // ServeHTTP applies authentication and CSRF checks, then dispatches.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	securityHeaders(w)
 	if r.URL.Path == "/login" {
 		s.handleLogin(w, r)
 		return
 	}
 	if r.URL.Path == "/healthz" {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
+		s.handleHealth(w, r)
 		return
 	}
 
@@ -152,6 +152,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) redirectLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// handleHealth reports liveness: the database must answer.
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		http.Error(w, "no store", http.StatusServiceUnavailable)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.deps.Store.DB().PingContext(ctx); err != nil {
+		http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
+}
+
+// securityHeaders sets the response headers that keep a browser from
+// sniffing, framing or leaking the UI's URLs.
+func securityHeaders(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 }
 
 // UserFrom returns the authenticated user from a request context.

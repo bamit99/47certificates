@@ -112,13 +112,18 @@ func TestReportLifecycle(t *testing.T) {
 		}
 	}
 
-	// Failing generation for an unknown kind is rejected at 500 with the report marked failed.
+	// An unknown kind is rejected before a report row is created, so no
+	// failed row is left behind.
+	before := reportRowCount(t, s)
 	badRec := post(s, "/reports", url.Values{
 		"kind":    {"bogus"},
 		"scan_id": {fmt.Sprint(scanID)},
 	}, cookie, s.csrfToken(cookie.Value))
-	if badRec.Code != http.StatusInternalServerError {
+	if badRec.Code != http.StatusBadRequest {
 		t.Fatalf("bogus kind status = %d", badRec.Code)
+	}
+	if after := reportRowCount(t, s); after != before {
+		t.Fatalf("a rejected report left %d rows behind", after-before)
 	}
 
 	// Delete removes the row and the directory.
@@ -134,6 +139,16 @@ func TestReportLifecycle(t *testing.T) {
 	if _, err := os.Stat(reportDir); !os.IsNotExist(err) {
 		t.Fatalf("report directory should be gone: %s", reportDir)
 	}
+}
+
+// reportRowCount returns the number of report rows.
+func reportRowCount(t *testing.T, s *Server) int {
+	t.Helper()
+	var n int
+	if err := s.deps.Store.DB().QueryRow(`SELECT COUNT(*) FROM reports`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 func TestReportGenerateRejectsMissingScan(t *testing.T) {

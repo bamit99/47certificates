@@ -26,6 +26,21 @@ const (
 	PrivateTrust         = "private_trust"
 )
 
+// DaysLeft returns the whole days until t, rounded away from zero.
+//
+// Rounding up matters at the boundaries the schedule uses: a certificate with
+// 30.9 days left is 31 days away, so it is not yet "expires soon" (the rule
+// is not_after - now <= 30 days), and one with 14.9 days left is 15 days
+// away, so it is not yet the high-severity case (which is <= 14 days).
+func DaysLeft(t, now time.Time) int {
+	d := t.Sub(now)
+	day := 24 * time.Hour
+	if d >= 0 {
+		return int((d + day - 1) / day)
+	}
+	return -int((-d + day - 1) / day)
+}
+
 // Findings evaluates a certificate at now. c.LifetimeDays, when zero, is
 // recomputed from the dates.
 func Findings(c Cert, v Verdict, now time.Time) []Finding {
@@ -54,7 +69,7 @@ func Findings(c Cert, v Verdict, now time.Time) []Finding {
 		}})
 	}
 
-	daysLeft := int(c.NotAfter.Sub(now) / (24 * time.Hour))
+	daysLeft := DaysLeft(c.NotAfter, now)
 	switch {
 	case c.NotAfter.Before(now):
 		out = append(out, Finding{Type: ExpiredServed, Detail: map[string]any{"days_left": daysLeft}})
@@ -72,6 +87,33 @@ func Findings(c Cert, v Verdict, now time.Time) []Finding {
 		out = append(out, Finding{Type: HostnameMismatch, Detail: map[string]any{}})
 	}
 	return out
+}
+
+// IsCertLevel reports whether a finding type is a property of the certificate
+// alone, or of one endpoint that served it.
+//
+// Certificate-level findings (lifetime, expiry) belong to the certificate:
+// one row per certificate, no matter how many endpoints serve it. Endpoint
+// findings (hostname mismatch, chain trust) belong to the endpoint that
+// produced them.
+func IsCertLevel(t string) bool {
+	switch t {
+	case ViolatesCurrentPhase, GrandfatheredTooLong, Exceeds47Target, ExpiresSoon, ExpiredServed:
+		return true
+	}
+	return false
+}
+
+// SplitFindings separates certificate-level findings from endpoint-level ones.
+func SplitFindings(fs []Finding) (certLevel, endpointLevel []Finding) {
+	for _, f := range fs {
+		if IsCertLevel(f.Type) {
+			certLevel = append(certLevel, f)
+			continue
+		}
+		endpointLevel = append(endpointLevel, f)
+	}
+	return certLevel, endpointLevel
 }
 
 // Bucket collapses overlapping findings into the one label the UI shows.
@@ -120,6 +162,19 @@ func rank(b string) int {
 	}
 }
 
+// detailDays reads the days_left field of a finding detail map. The value
+// arrives as an int when the finding was just computed and as a float64 when
+// it was decoded from JSON, so both are accepted.
+func detailDays(detail map[string]any) int {
+	switch v := detail["days_left"].(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	}
+	return 0
+}
+
 // Severity is derived at read time so a phase boundary does not require a
 // migration.
 func Severity(f Finding, now time.Time) string {
@@ -129,7 +184,7 @@ func Severity(f Finding, now time.Time) string {
 	case GrandfatheredTooLong, UntrustedChain:
 		return "high"
 	case ExpiresSoon:
-		if d, _ := f.Detail["days_left"].(int); d <= 14 {
+		if d := detailDays(f.Detail); d <= 14 {
 			return "high"
 		}
 		return "medium"

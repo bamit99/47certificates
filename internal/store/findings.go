@@ -22,8 +22,12 @@ func (s *Store) AckFinding(ctx context.Context, findingID, userID int64, note st
 }
 
 // SnoozeFinding hides one finding until until.
-func (s *Store) SnoozeFinding(ctx context.Context, findingID, userID int64, until time.Time, note string) error {
-	if until.IsZero() || !until.After(time.Now()) {
+//
+// The caller passes the reference time it is working with: the web layer uses
+// its injected clock, so a snooze is judged against the same "now" the user
+// was shown rather than the wall clock.
+func (s *Store) SnoozeFinding(ctx context.Context, findingID, userID int64, until, now time.Time, note string) error {
+	if until.IsZero() || !until.After(now) {
 		return fmt.Errorf("store: snooze requires a future time")
 	}
 	res, err := s.db.ExecContext(ctx,

@@ -8,6 +8,13 @@
 <dt>Error</dt><dd>{{if .Scan.Error}}{{.Scan.Error}}{{else}}none{{end}}</dd>
 </dl>
 
+{{if or (eq .Scan.Status "queued") (eq .Scan.Status "running")}}
+<form method="post" action="/scans/{{.Scan.ID}}/cancel" onsubmit="return confirm('Cancel scan #{{.Scan.ID}}?')" style="margin-bottom:1rem">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button type="submit">Cancel scan</button>
+</form>
+{{end}}
+
 {{if .Stats}}
 <h2>Stats</h2>
 <pre>{{json .Stats}}</pre>

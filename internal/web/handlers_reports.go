@@ -3,6 +3,7 @@ package web
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -70,18 +71,31 @@ func (s *Server) handleReportCreate(w http.ResponseWriter, r *http.Request) {
 	u, _ := UserFrom(ctx)
 
 	kind := report.Kind(r.PostFormValue("kind"))
+	if !report.ValidKind(kind) {
+		http.Error(w, "unknown report kind", http.StatusBadRequest)
+		return
+	}
 	scanID, err := strconv.ParseInt(r.PostFormValue("scan_id"), 10, 64)
 	if err != nil {
 		http.Error(w, "invalid scan_id", http.StatusBadRequest)
 		return
 	}
 	domain := strings.TrimSpace(r.PostFormValue("domain"))
+	if kind == report.Domain && domain == "" {
+		http.Error(w, "a domain report requires a domain", http.StatusBadRequest)
+		return
+	}
 
 	rp, genErr := report.GenerateAndStore(ctx, s.deps.Store, filepath.Join(s.dataDir(), "reports"), kind, scanID, domain, &u.ID, s.now())
 	if genErr != nil {
 		_ = s.deps.Store.Audit(ctx, &u.ID, "report.fail", strconv.FormatInt(scanID, 10),
 			[]byte(fmt.Sprintf(`{"error":%q}`, genErr.Error())), clientIP(r))
-		http.Error(w, "report generation failed: "+genErr.Error(), http.StatusInternalServerError)
+		// The audit log keeps the detail; the client gets a generic message.
+		if errors.Is(genErr, report.ErrScanNotDone) {
+			http.Error(w, "that scan is not complete", http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "report generation failed", http.StatusInternalServerError)
 		return
 	}
 	_ = s.deps.Store.Audit(ctx, &u.ID, "report.generate", strconv.FormatInt(rp.ID, 10),

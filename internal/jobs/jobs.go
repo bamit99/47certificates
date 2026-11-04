@@ -67,7 +67,7 @@ func (r *Runner) TriggerScan(ctx context.Context, trigger string, userID *int64)
 
 	// Re-check the store lock so a CLI scan also blocks the web trigger.
 	lockCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	release, err := r.Store.AcquireScanLock(lockCtx)
+	lock, err := r.Store.AcquireScanLock(lockCtx)
 	cancel()
 	if err != nil {
 		releaseReservation()
@@ -76,7 +76,7 @@ func (r *Runner) TriggerScan(ctx context.Context, trigger string, userID *int64)
 		}
 		return 0, err
 	}
-	release()
+	lock.Release()
 
 	scanID, err := r.Store.BeginScan(ctx, trigger, userID)
 	if err != nil {

@@ -1,15 +1,30 @@
 package roots
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	_ "embed"
 	"encoding/pem"
 	"fmt"
+	"net/http"
 	"sync"
+	"time"
 )
 
 //go:embed ca.pem
 var bundle []byte
+
+// HTTPClient returns an HTTPS client verified against the embedded Mozilla
+// bundle. The scratch runtime has no CA directory, so every outbound HTTPS
+// call must pin here instead of relying on system defaults.
+func HTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: Pool()},
+		},
+	}
+}
 
 var (
 	once sync.Once

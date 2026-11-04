@@ -34,6 +34,13 @@ func GenerateAndStore(ctx context.Context, st *store.Store, reportsDir string, k
 		return store.Report{}, genErr
 	}
 
+	// The snapshot is the delta baseline for a later report of the same kind.
+	// It survives retention pruning the observations it was built from.
+	if err := st.SaveReportSnapshot(ctx, reportID, artifacts.Snapshot); err != nil {
+		_ = st.FailReport(ctx, reportID, err.Error())
+		return store.Report{}, err
+	}
+
 	dir := filepath.Join(reportsDir, strconv.FormatInt(reportID, 10))
 	if err := writeArtifacts(dir, artifacts); err != nil {
 		_ = st.FailReport(ctx, reportID, err.Error())

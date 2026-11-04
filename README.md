@@ -29,7 +29,7 @@ docker compose up -d         # serves 127.0.0.1:8080
 ## Commands
 
 - `serve` — web UI, scheduler, and background job runner
-- `scan` — one-off scan against a scope file
+- `scan` — one-off scan against the scope in the database (`--scope file` overrides it)
 - `user` — manage users (`add`, `list`)
 - `backup` — `VACUUM INTO` snapshot, refuses to overwrite
 - `health` — exits 0 when the database opens and the schema matches

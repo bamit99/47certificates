@@ -122,6 +122,82 @@ func (s *Store) LatestDoneReport(ctx context.Context, kind string, scanID int64)
 	return &r, nil
 }
 
+// LatestDoneReportOfKind returns the most recent done report of a kind,
+// regardless of which scan it covers. It is the delta baseline: a report
+// compares against the previous report of the same kind, not against a scan
+// that retention may have pruned.
+func (s *Store) LatestDoneReportOfKind(ctx context.Context, kind string, beforeID int64) (*Report, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, scan_id FROM reports
+		WHERE kind = ? AND status = 'done' AND id < ?
+		ORDER BY id DESC LIMIT 1`, kind, beforeID)
+	var r Report
+	if err := row.Scan(&r.ID, &r.ScanID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &r, nil
+}
+
+// SnapshotRow is one certificate as a report saw it. It is stored with the
+// report so a later report can diff against it without reading observations
+// that retention may have deleted.
+type SnapshotRow struct {
+	Fingerprint  string `json:"fingerprint_sha256"`
+	LifetimeDays int    `json:"lifetime_days"`
+	Violation    bool   `json:"violation"`
+}
+
+// SaveReportSnapshot records the certificate set a report was built from.
+func (s *Store) SaveReportSnapshot(ctx context.Context, reportID int64, rows []SnapshotRow) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM report_snapshots WHERE report_id = ?`, reportID); err != nil {
+		return err
+	}
+	for _, r := range rows {
+		violation := 0
+		if r.Violation {
+			violation = 1
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR REPLACE INTO report_snapshots (report_id, fingerprint, lifetime_days, violation)
+			 VALUES (?, ?, ?, ?)`,
+			reportID, r.Fingerprint, r.LifetimeDays, violation); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ReportSnapshot loads the certificate set a report was built from.
+func (s *Store) ReportSnapshot(ctx context.Context, reportID int64) ([]SnapshotRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT fingerprint, lifetime_days, violation FROM report_snapshots WHERE report_id = ?`, reportID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SnapshotRow
+	for rows.Next() {
+		var (
+			r        SnapshotRow
+			violation int
+		)
+		if err := rows.Scan(&r.Fingerprint, &r.LifetimeDays, &violation); err != nil {
+			return nil, err
+		}
+		r.Violation = violation != 0
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ListReports returns reports newest first.
 func (s *Store) ListReports(ctx context.Context, limit int) ([]Report, error) {
 	if limit <= 0 {

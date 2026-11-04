@@ -109,20 +109,29 @@ func (s *Store) CreateSession(ctx context.Context, id string, userID int64, expi
 	return nil
 }
 
+// sessionTTL is the absolute session lifetime.
+const sessionTTL = 30 * 24 * time.Hour
+
+// sessionIdle is how long a session may be inactive before it dies.
+const sessionIdle = 7 * 24 * time.Hour
+
 // SessionUser resolves a session id to an enabled user and refreshes last_seen.
-// Expired sessions return ErrNotFound.
+// Sessions older than 30 days or idle for more than 7 are treated as absent.
 func (s *Store) SessionUser(ctx context.Context, id string, now time.Time) (User, error) {
 	var userID int64
-	var expires int64
+	var (
+		expires  int64
+		lastSeen int64
+	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT user_id, expires_at FROM sessions WHERE id = ?`, id).Scan(&userID, &expires)
+		`SELECT user_id, expires_at, last_seen FROM sessions WHERE id = ?`, id).Scan(&userID, &expires, &lastSeen)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, ErrNotFound
 		}
 		return User{}, err
 	}
-	if fromUnix(expires).Before(now) {
+	if fromUnix(expires).Before(now) || fromUnix(lastSeen).Before(now.Add(-sessionIdle)) {
 		_, _ = s.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, id)
 		return User{}, ErrNotFound
 	}

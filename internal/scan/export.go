@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/amit/47certificates/internal/csvsafe"
 	"github.com/amit/47certificates/internal/store"
 )
 
@@ -36,7 +37,7 @@ func ExportCSV(ctx context.Context, st *store.Store, scanID int64, w io.Writer) 
 			r.Trust, strconv.FormatBool(r.ChainValid), strconv.FormatBool(r.HostnameValid),
 			strconv.Itoa(int(r.TLSVersion)), strconv.Itoa(int(r.Cipher)),
 		}
-		if err := cw.Write(rec); err != nil {
+		if err := cw.Write(csvsafe.Row(rec)); err != nil {
 			return err
 		}
 	}

@@ -98,7 +98,7 @@ func TestSnoozeExpires(t *testing.T) {
 
 	ctx := context.Background()
 	for _, id := range findingIDs {
-		if err := st.SnoozeFinding(ctx, id, 1, readTestNow.Add(time.Hour), ""); err != nil {
+		if err := st.SnoozeFinding(ctx, id, 1, readTestNow.Add(time.Hour), readTestNow, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -94,7 +94,7 @@ func buildCertView(c store.CertSummary, now time.Time) CertView {
 		ID:           c.ID,
 	}
 	for _, f := range c.Findings {
-		v.Findings = append(v.Findings, buildFindingView(f, now))
+		v.Findings = append(v.Findings, buildFindingView(f, now, c.NotBefore, c.NotAfter))
 	}
 	v.Bucket = bucketOfViews(openViews(v.Findings))
 	v.Severity = severityOfViews(openViews(v.Findings))
@@ -111,7 +111,7 @@ func buildCertView(c store.CertSummary, now time.Time) CertView {
 	return v
 }
 
-func buildFindingView(f store.Finding, now time.Time) FindingView {
+func buildFindingView(f store.Finding, now time.Time, notBefore, notAfter time.Time) FindingView {
 	detail := map[string]any{}
 	if f.Detail != "" {
 		_ = json.Unmarshal([]byte(f.Detail), &detail)
@@ -119,6 +119,11 @@ func buildFindingView(f store.Finding, now time.Time) FindingView {
 	// JSON numbers decode to float64; findings code expects int.
 	if d, ok := detail["days_left"].(float64); ok {
 		detail["days_left"] = int(d)
+	}
+	// Severity derives from the certificate dates at read time, not from the
+	// persisted scan-time detail.
+	if _, ok := detail["days_left"]; ok {
+		detail["days_left"] = x509eval.DaysLeft(notAfter, now)
 	}
 	xf := x509eval.Finding{Type: f.Type, Detail: detail}
 	return FindingView{

@@ -17,16 +17,44 @@
 <h2>Delta</h2>
 <p>{{.Delta.Sentence}}</p>
 
+<h2>Phase exposure</h2>
+<table>
+<thead><tr><th>Phase</th><th>Certificates issued in phase</th><th>Exceeding phase max</th></tr></thead>
+<tbody>
+{{range .PhaseGroups}}<tr><td>{{.Name}}</td><td>{{.Count}}</td><td>{{.Exceeding}}</td></tr>{{end}}
+</tbody>
+</table>
+
+<h2>Top 10 longest-lived certificates</h2>
+{{if .Longest}}
+<table>
+<thead><tr><th>Lifetime</th><th>Not before</th><th>Subject</th><th>Fingerprint</th><th>Bucket</th></tr></thead>
+<tbody>
+{{range .Longest}}<tr><td>{{.LifetimeDays}}d</td><td>{{.NotBefore.Format "2006-01-02"}}</td><td>{{.Subject}}</td><td><code>{{.ShortFP}}…</code></td><td>{{.Bucket}}</td></tr>{{end}}
+</tbody>
+</table>
+{{else}}<p>None.</p>{{end}}
+
+<h2>Expiring within 30 days</h2>
+{{if .Expiring}}
+<table>
+<thead><tr><th>Expires</th><th>Subject</th><th>Endpoints</th><th>Lifetime</th><th>Bucket</th></tr></thead>
+<tbody>
+{{range .Expiring}}<tr><td>{{.NotAfter.Format "2006-01-02"}}</td><td>{{.Subject}}</td><td>{{endpoints .}}</td><td>{{.LifetimeDays}}d</td><td>{{.Bucket}}</td></tr>{{end}}
+</tbody>
+</table>
+{{else}}<p>None.</p>{{end}}
+
 <h2>Action items</h2>
 <table>
-<thead><tr><th>Fingerprint</th><th>Subject</th><th>Lifetime</th><th>Bucket</th><th>Host</th></tr></thead>
+<thead><tr><th>Fingerprint</th><th>Subject</th><th>Lifetime</th><th>Bucket</th><th>Endpoints</th></tr></thead>
 <tbody>
 {{range .Public}}{{if hasFindings .}}<tr>
 <td><code>{{.ShortFP}}…</code></td>
 <td>{{.Subject}}</td>
 <td>{{.LifetimeDays}}d</td>
 <td class="{{.Bucket}}">{{.Bucket}}</td>
-<td>{{.Host}}</td>
+<td>{{endpoints .}}</td>
 </tr>{{end}}{{else}}<tr><td colspan="5">None — every observed certificate is compliant.</td></tr>{{end}}
 </tbody>
 </table>
@@ -35,9 +63,9 @@
 <h2>Appendix: non-public observations ({{len .Private}})</h2>
 <p>These chains did not anchor in a public root. They are out of scope for the 47-day analysis.</p>
 <table>
-<thead><tr><th>Fingerprint</th><th>Subject</th><th>Host</th><th>Trust</th></tr></thead>
+<thead><tr><th>Fingerprint</th><th>Subject</th><th>Endpoints</th><th>Trust</th></tr></thead>
 <tbody>
-{{range .Private}}<tr><td><code>{{.ShortFP}}…</code></td><td>{{.Subject}}</td><td>{{.Host}}</td><td>{{.Trust}}</td></tr>{{end}}
+{{range .Private}}<tr><td><code>{{.ShortFP}}…</code></td><td>{{.Subject}}</td><td>{{endpoints .}}</td><td>{{.Trust}}</td></tr>{{end}}
 </tbody>
 </table>
 {{end}}

@@ -31,7 +31,7 @@ func openStore(t *testing.T) *store.Store {
 	return st
 }
 
-func addCert(t *testing.T, st *store.Store, scanID int64, host, fp string, nb time.Time, lifetime int, sans []string) {
+func addCert(t *testing.T, st *store.Store, scanID int64, host, fp string, nb time.Time, lifetime int, sans []string) int64 {
 	t.Helper()
 	cert := x509eval.Cert{
 		Fingerprint:  fp,
@@ -56,6 +56,7 @@ func addCert(t *testing.T, st *store.Store, scanID int64, host, fp string, nb ti
 	if err := st.RecordObservation(context.Background(), scanID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
+	return certID
 }
 
 func startScan(t *testing.T, st *store.Store, status string) int64 {

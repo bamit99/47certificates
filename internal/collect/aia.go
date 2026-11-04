@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,28 +23,30 @@ const maxAIAURLs = 3
 type AIAFetcher struct {
 	client   *http.Client
 	maxBytes int64
+	mu       sync.Mutex
+	cache    map[string][][]byte
 }
 
-// NewAIAFetcher returns a fetcher. A nil client is replaced by a default one.
+// NewAIAFetcher returns a fetcher. A nil client is replaced by one that
+// verifies HTTPS against the embedded Mozilla bundle and dials only publicly
+// routable addresses, so the fetch works inside the scratch image and cannot
+// be steered at an internal service.
 // maxBytes <= 0 means 1 MiB.
 func NewAIAFetcher(client *http.Client, maxBytes int64) *AIAFetcher {
-	if client == nil {
-		client = &http.Client{}
-	}
 	if maxBytes <= 0 {
 		maxBytes = 1 << 20
 	}
-	return &AIAFetcher{client: client, maxBytes: maxBytes}
+	return &AIAFetcher{client: rootsDefault(client), maxBytes: maxBytes, cache: map[string][][]byte{}}
 }
 
 // Fetch returns the DER certificates found at urls. It stops at the first URL
-// that yields a certificate.
+// that yields a certificate. At most maxAIAURLs URLs are considered.
 func (f *AIAFetcher) Fetch(ctx context.Context, urls []string) ([][]byte, error) {
 	if len(urls) == 0 {
 		return nil, fmt.Errorf("aia: no URLs")
 	}
 	if len(urls) > maxAIAURLs {
-		return nil, fmt.Errorf("aia: %d URLs exceeds limit of %d", len(urls), maxAIAURLs)
+		urls = urls[:maxAIAURLs]
 	}
 	var errs []string
 	for _, u := range urls {
@@ -57,6 +60,13 @@ func (f *AIAFetcher) Fetch(ctx context.Context, urls []string) ([][]byte, error)
 }
 
 func (f *AIAFetcher) fetchOne(ctx context.Context, raw string) ([][]byte, error) {
+	f.mu.Lock()
+	if cached, ok := f.cache[raw]; ok {
+		f.mu.Unlock()
+		return cached, nil
+	}
+	f.mu.Unlock()
+
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, fmt.Errorf("parse: %w", err)
@@ -108,7 +118,23 @@ func (f *AIAFetcher) fetchOne(ctx context.Context, raw string) ([][]byte, error)
 	if len(ders) == 0 {
 		return nil, fmt.Errorf("no certificate found")
 	}
+	f.mu.Lock()
+	f.cache[raw] = ders
+	f.mu.Unlock()
 	return ders, nil
+}
+
+func rootsDefault(c *http.Client) *http.Client {
+	if c != nil {
+		return c
+	}
+	// The scratch image has no CA directory, so HTTPS must be verified against
+	// the embedded bundle. The transport also refuses to dial private
+	// addresses and refuses redirects.
+	return &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: newSafeTransport(10 * time.Second),
+	}
 }
 
 // parseCerts accepts a PEM bundle or concatenated DER certificates.

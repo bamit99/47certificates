@@ -20,7 +20,7 @@ import (
 
 const (
 	cookieName   = "47c_session"
-	sessionTTL   = 7 * 24 * time.Hour
+	sessionTTL   = 30 * 24 * time.Hour
 	loginPerMin  = 5
 	secretKey    = "csrf_secret"
 	secretLength = 32
@@ -64,6 +64,17 @@ func (s *Server) csrfValid(r *http.Request, sessionID string) bool {
 	return hmac.Equal([]byte(token), []byte(s.csrfToken(sessionID)))
 }
 
+// dummyHash is a valid argon2id hash of an unguessable value. It is used to
+// spend the same CPU time on an unknown username as on a known one, so the
+// response time does not reveal which usernames exist.
+var dummyHash = func() string {
+	h, err := auth.HashPassword("47c-dummy-password-for-constant-time-login")
+	if err != nil {
+		panic("web: dummy hash: " + err.Error())
+	}
+	return h
+}()
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -81,6 +92,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		password := r.PostFormValue("password")
 		user, err := s.deps.Store.UserByUsername(r.Context(), username)
 		if errors.Is(err, store.ErrNotFound) {
+			// Spend the password-hashing time anyway so an unknown
+			// username is not distinguishable by response time.
+			auth.CheckPassword(dummyHash, password)
 			s.renderLogin(w, http.StatusUnauthorized, "Invalid username or password.")
 			return
 		}
@@ -88,7 +102,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if user.Disabled || !auth.CheckPassword(user.PasswordHash, password) {
+		if user.Disabled {
+			auth.CheckPassword(dummyHash, password)
+			s.renderLogin(w, http.StatusUnauthorized, "Invalid username or password.")
+			return
+		}
+		if !auth.CheckPassword(user.PasswordHash, password) {
 			s.renderLogin(w, http.StatusUnauthorized, "Invalid username or password.")
 			return
 		}

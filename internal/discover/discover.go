@@ -35,6 +35,13 @@ type Options struct {
 	Timeout time.Duration
 	// LookupTimeout bounds each DNS lookup pair. Zero means 2s.
 	LookupTimeout time.Duration
+	// CachedNames returns the previously discovered names for a domain when
+	// the cache is still fresh. The names are replayed instead of querying
+	// the source again: a cached domain must still contribute its hosts, or
+	// a rescan would look like the certificates were retired.
+	CachedNames func(domain string) ([]string, bool)
+	// RememberSuccess records the names a source returned for a domain.
+	RememberSuccess func(domain string, names []string)
 }
 
 // Result is the discovery output for one run.
@@ -54,11 +61,15 @@ func Run(ctx context.Context, set *scope.Set, src Source, res Resolver, opts Opt
 
 	names := append([]string{}, set.Hosts()...)
 	if src != nil {
-		found, err := namesFor(ctx, src, set.Hosts(), opts)
+		found, err := namesFor(ctx, src, set.Hosts(), opts, func(w string) {
+			out.Warnings = append(out.Warnings, w)
+		})
 		if err != nil {
 			out.Warnings = append(out.Warnings, "ct: "+err.Error())
 			if opts.Fallback != nil {
-				more, ferr := namesFor(ctx, opts.Fallback, set.Hosts(), opts)
+				more, ferr := namesFor(ctx, opts.Fallback, set.Hosts(), opts, func(w string) {
+					out.Warnings = append(out.Warnings, w)
+				})
 				if ferr != nil {
 					out.Warnings = append(out.Warnings, "ct-fallback: "+ferr.Error())
 				} else {
@@ -122,8 +133,9 @@ func Run(ctx context.Context, set *scope.Set, src Source, res Resolver, opts Opt
 	return out, nil
 }
 
-// namesFor queries one source once per starting host and dedupes the answers.
-func namesFor(ctx context.Context, src Source, domains []string, opts Options) ([]string, error) {
+// namesFor queries one source once per starting host, using the 6-hour cache
+// when configured, and dedupes the answers.
+func namesFor(ctx context.Context, src Source, domains []string, opts Options, warnf func(string)) ([]string, error) {
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -133,12 +145,24 @@ func namesFor(ctx context.Context, src Source, domains []string, opts Options) (
 		errs []string
 	)
 	for _, d := range domains {
+		if opts.CachedNames != nil {
+			if cached, ok := opts.CachedNames(d); ok {
+				if warnf != nil {
+					warnf(fmt.Sprintf("ct: cache fresh for %s; %d names replayed", d, len(cached)))
+				}
+				out = append(out, cached...)
+				continue
+			}
+		}
 		ictx, cancel := context.WithTimeout(ctx, timeout)
 		names, err := src.Names(ictx, d)
 		cancel()
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", d, err))
 			continue
+		}
+		if opts.RememberSuccess != nil {
+			opts.RememberSuccess(d, names)
 		}
 		out = append(out, names...)
 	}

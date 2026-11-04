@@ -5,9 +5,9 @@ package scan
 import (
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
@@ -79,7 +79,13 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 		e.finish(scanID, "failed", Stats{}, err.Error())
 		return Stats{}, err
 	}
-	defer release()
+	defer release.Release()
+
+	// A scan can run longer than the lock's stale threshold. Refresh the
+	// lease while it works so no second scan can start alongside it.
+	stopHeartbeat := make(chan struct{})
+	defer close(stopHeartbeat)
+	go e.heartbeat(release, stopHeartbeat)
 
 	markCtx, markCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	err = e.Store.MarkRunning(markCtx, scanID)
@@ -102,7 +108,12 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 	}
 
 	report(Progress{Stage: "discover"})
-	disc, derr := discover.Run(ctx, set, e.Source, e.Resolver, discover.Options{Fallback: e.Fallback})
+	cachedNames, remember := ctCache(e.Store)
+	disc, derr := discover.Run(ctx, set, e.Source, e.Resolver, discover.Options{
+		Fallback:        e.Fallback,
+		CachedNames:     cachedNames,
+		RememberSuccess: remember,
+	})
 	stats := Stats{Warnings: disc.Warnings}
 	if derr != nil {
 		stats.Warnings = append(stats.Warnings, "discover: "+derr.Error())
@@ -130,7 +141,7 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	aia := collect.NewAIAFetcher(&http.Client{}, 1<<20)
+	aia := collect.NewAIAFetcher(nil, 1<<20)
 	probeOpts := collect.Options{Timeout: timeout, AIA: aia}
 
 	jobs := make(chan collect.Endpoint)
@@ -216,9 +227,18 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 		return stats, runErr
 	}
 	e.finish(scanID, "done", stats, "")
-	retireCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Lifecycle fields (last_seen, retired_at) and finding closure are owned
+	// by scans that end "done". A cancelled or failed scan persists its
+	// observations and progress but must never look like mass retirement.
+	finalizeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := e.Store.RetireUnseen(retireCtx, scanID); err != nil {
+	if err := e.Store.MarkSeen(finalizeCtx, scanID); err != nil {
+		return stats, err
+	}
+	if err := e.Store.ResolveStaleFindings(finalizeCtx, scanID); err != nil {
+		return stats, err
+	}
+	if err := e.Store.RetireUnseen(finalizeCtx, scanID); err != nil {
 		return stats, err
 	}
 	report(Progress{Stage: "done", Done: len(endpoints), Total: len(endpoints)})
@@ -233,6 +253,11 @@ func (e *Engine) record(ctx context.Context, scanID int64, obs collect.Observati
 	v := x509eval.Verify(obs.LeafDER, obs.ChainDER, obs.Endpoint.Host, e.Roots, now)
 	findings := x509eval.Findings(c, v, now)
 
+	// Certificate-level findings (lifetime, expiry) belong to the certificate:
+	// one row per certificate however many endpoints serve it. Endpoint-level
+	// findings (hostname mismatch, chain trust) belong to the endpoint.
+	certLevel, endpointLevel := x509eval.SplitFindings(findings)
+
 	certID, err := e.Store.UpsertCert(ctx, c)
 	if err != nil {
 		return "", err
@@ -244,10 +269,59 @@ func (e *Engine) record(ctx context.Context, scanID int64, obs collect.Observati
 	if err := e.Store.RecordObservation(ctx, scanID, endpointID, certID, v, obs.TLSVersion, obs.Cipher, obs.CAA); err != nil {
 		return "", err
 	}
-	if err := e.Store.SyncFindings(ctx, scanID, certID, &endpointID, findings, now); err != nil {
+	if err := e.Store.SyncFindings(ctx, scanID, certID, nil, certLevel, now); err != nil {
+		return "", err
+	}
+	if err := e.Store.SyncFindings(ctx, scanID, certID, &endpointID, endpointLevel, now); err != nil {
 		return "", err
 	}
 	return v.Trust, nil
+}
+
+// ctCache wires the 6-hour certificate-transparency cache to the store's
+// settings table, so a rescan within the window does not re-hit crt.sh.
+//
+// The cache stores the names it saw, not just the time: a cached domain must
+// still contribute its hosts, or the rescan would retire the certificates
+// that only CT had revealed.
+func ctCache(st *store.Store) (func(string) ([]string, bool), func(string, []string)) {
+	if st == nil {
+		return nil, nil
+	}
+	cached := func(domain string) ([]string, bool) {
+		v, err := st.GetSetting(context.Background(), ctCacheKey(domain))
+		if err != nil {
+			return nil, false
+		}
+		var entry ctCacheEntry
+		if err := json.Unmarshal([]byte(v), &entry); err != nil {
+			return nil, false
+		}
+		if time.Since(time.Unix(entry.At, 0)) >= ctCacheTTL {
+			return nil, false
+		}
+		return entry.Names, true
+	}
+	remember := func(domain string, names []string) {
+		entry := ctCacheEntry{At: time.Now().Unix(), Names: names}
+		b, err := json.Marshal(entry)
+		if err != nil {
+			return
+		}
+		_ = st.SetSetting(context.Background(), ctCacheKey(domain), string(b))
+	}
+	return cached, remember
+}
+
+// ctCacheTTL is how long a CT answer is reused.
+const ctCacheTTL = 6 * time.Hour
+
+func ctCacheKey(domain string) string { return "ct_cache:" + domain }
+
+// ctCacheEntry is the cached CT answer for one domain.
+type ctCacheEntry struct {
+	At    int64    `json:"at"`
+	Names []string `json:"names"`
 }
 
 func expand(disc discover.Result, ports []int) []collect.Endpoint {
@@ -262,7 +336,7 @@ func expand(disc discover.Result, ports []int) []collect.Endpoint {
 	return out
 }
 
-func (e *Engine) acquire(ctx context.Context) (func(), error) {
+func (e *Engine) acquire(ctx context.Context) (*store.ScanLock, error) {
 	for {
 		lockCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		release, err := e.Store.AcquireScanLock(lockCtx)
@@ -280,6 +354,32 @@ func (e *Engine) acquire(ctx context.Context) (func(), error) {
 		}
 	}
 }
+
+// heartbeat extends the scan lock's lease until stop is closed.
+func (e *Engine) heartbeat(lock *store.ScanLock, stop <-chan struct{}) {
+	ticker := time.NewTicker(lockRefreshInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ok, err := lock.Refresh(ctx)
+			cancel()
+			if err != nil {
+				return
+			}
+			if !ok {
+				// The lock was reclaimed by another holder; stop touching it.
+				return
+			}
+		}
+	}
+}
+
+// lockRefreshInterval is how often a running scan extends its lock lease.
+const lockRefreshInterval = 5 * time.Minute
 
 func (e *Engine) finish(scanID int64, status string, stats Stats, errMsg string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

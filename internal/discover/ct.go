@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/amit/47certificates/internal/roots"
 )
 
 const maxCTBody = 8 << 20
@@ -99,7 +101,7 @@ func clientOr(c *http.Client) *http.Client {
 	if c != nil {
 		return c
 	}
-	return &http.Client{Timeout: 20 * time.Second}
+	return roots.HTTPClient(20 * time.Second)
 }
 
 func getJSON(ctx context.Context, client *http.Client, u string) ([]byte, error) {

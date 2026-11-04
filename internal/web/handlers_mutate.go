@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/amit/47certificates/internal/jobs"
+	"github.com/amit/47certificates/internal/notify"
 	"github.com/amit/47certificates/internal/scope"
 	"github.com/amit/47certificates/internal/store"
 )
@@ -204,8 +205,8 @@ func validateSettings(form url.Values) (map[string]string, []string) {
 				values[spec.Key] = ""
 				continue
 			}
-			if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
-				errs = append(errs, "report.webhook_url: must be http or https")
+			if err := notify.ValidateWebhookURL(v); err != nil {
+				errs = append(errs, "report.webhook_url: "+err.Error())
 				continue
 			}
 			values[spec.Key] = v
