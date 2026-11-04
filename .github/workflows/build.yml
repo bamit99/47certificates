@@ -1,0 +1,52 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          check-latest: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the container image
+        run: docker build -t 47c:ci .
+
+      - name: The image must be able to answer for itself
+        run: |
+          docker run --rm -d --name 47c-ci -p 127.0.0.1:8099:8080 \
+            -e ADMIN_PASSWORD=ci-test-password 47c:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8099/healthz >/dev/null; then
+              echo "the container is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the container never became healthy" >&2
+          docker logs 47c-ci >&2
+          exit 1
