@@ -12,10 +12,8 @@
 
 {{if eq .Report.Status "done"}}
 <p>
-<a href="/reports/{{.Report.ID}}/download?format=html">HTML</a> ·
-<a href="/reports/{{.Report.ID}}/download?format=csv">CSV</a> ·
-<a href="/reports/{{.Report.ID}}/download?format=json">JSON</a> ·
-<a href="/reports/{{.Report.ID}}/download?format=zip">ZIP</a>
+{{range .Formats}}<a href="/reports/{{$.Report.ID}}/download?format={{.Key}}">{{.Label}}{{if .Default}} (recommended){{end}}</a>{{if not .Last}} · {{end}}{{end}}
+· <a href="/reports/{{.Report.ID}}/download?format=zip">ZIP (all formats)</a>
 </p>
 <form method="post" action="/reports/{{.Report.ID}}/delete" onsubmit="return confirm('Delete report #{{.Report.ID}}? This cannot be undone.')">
 <input type="hidden" name="csrf" value="{{.CSRF}}">

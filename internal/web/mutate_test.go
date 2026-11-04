@@ -21,12 +21,19 @@ type fakeJobs struct {
 	scanID    int64
 	trigger   error
 	cancelErr error
+	// domain is the domain the last trigger asked for.
+	domain string
 }
 
 func (f *fakeJobs) TriggerScan(context.Context, string, *int64) (int64, error) {
+	return f.TriggerDomainScan(context.Background(), "manual", nil, "")
+}
+
+func (f *fakeJobs) TriggerDomainScan(_ context.Context, _ string, _ *int64, domain string) (int64, error) {
 	if f.trigger != nil {
 		return 0, f.trigger
 	}
+	f.domain = domain
 	if f.scanID == 0 {
 		f.scanID = 42
 	}

@@ -22,12 +22,12 @@ func TestReportCountsCertificatesNotEndpoints(t *testing.T) {
 	nb := testNow().AddDate(0, 0, -5)
 	certID := addCert(t, st, s1, "a.example.com", fpCompliant, nb, 90, []string{"a.example.com"})
 	for _, host := range []string{"b.example.com", "c.example.com", "d.example.com"} {
-		ep, err := st.UpsertEndpoint(ctx, host, 443, "192.0.2.9", s1)
+		ep, err := st.UpsertEndpoint(ctx, testDomainID, host, 443, "192.0.2.9", s1)
 		if err != nil {
 			t.Fatal(err)
 		}
 		v := x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}
-		if err := st.RecordObservation(ctx, s1, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
+		if err := st.RecordObservation(ctx, s1, testDomainID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -121,7 +121,7 @@ func TestDeltaSurvivesPrunedObservations(t *testing.T) {
 	if err := st.SaveReportSnapshot(ctx, id1, a1.Snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SaveReportFiles(ctx, id1, "/tmp/a.html", "/tmp/a.csv", "/tmp/a.json", 1, "sha"); err != nil {
+	if err := st.SaveReportFiles(ctx, id1, "/tmp/a.html", "/tmp/a.csv", "/tmp/a.json", "/tmp/a.md", "/tmp/a.pdf", 1, "sha"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -161,12 +161,12 @@ func TestDeltaCountsCertificates(t *testing.T) {
 	}
 	certID := addCert(t, st, scan1, "a.example.com", fpCompliant, nb, 47, []string{"a.example.com"})
 	for _, host := range []string{"b.example.com", "c.example.com"} {
-		ep, err := st.UpsertEndpoint(ctx, host, 443, "192.0.2.9", scan1)
+		ep, err := st.UpsertEndpoint(ctx, testDomainID, host, 443, "192.0.2.9", scan1)
 		if err != nil {
 			t.Fatal(err)
 		}
 		v := x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}
-		if err := st.RecordObservation(ctx, scan1, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
+		if err := st.RecordObservation(ctx, scan1, testDomainID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -181,7 +181,7 @@ func TestDeltaCountsCertificates(t *testing.T) {
 	if err := st.SaveReportSnapshot(ctx, id1, a1.Snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SaveReportFiles(ctx, id1, "/tmp/a.html", "/tmp/a.csv", "/tmp/a.json", 1, "sha"); err != nil {
+	if err := st.SaveReportFiles(ctx, id1, "/tmp/a.html", "/tmp/a.csv", "/tmp/a.json", "/tmp/a.md", "/tmp/a.pdf", 1, "sha"); err != nil {
 		t.Fatal(err)
 	}
 

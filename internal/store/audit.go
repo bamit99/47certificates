@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/amit/47certificates/internal/scope"
@@ -22,6 +23,10 @@ type AuditEntry struct {
 }
 
 // ReplaceScope swaps the whole allowlist in one transaction.
+//
+// Every include entry names a domain. A domain row is created for the ones
+// that are new and kept for the ones that are not, so the history of a
+// domain stays readable after it leaves the allowlist.
 func (s *Store) ReplaceScope(ctx context.Context, entries []scope.Entry, userID *int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -41,8 +46,41 @@ func (s *Store) ReplaceScope(ctx context.Context, entries []scope.Entry, userID 
 			kind, e.Value, userID, toUnix(time.Now())); err != nil {
 			return fmt.Errorf("store: insert scope entry: %w", err)
 		}
+		if kind == "include" {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT OR IGNORE INTO domains (name, created_at) VALUES (?, ?)`,
+				strings.ToLower(e.Value), toUnix(time.Now())); err != nil {
+				return fmt.Errorf("store: ensure domain %s: %w", e.Value, err)
+			}
+		}
 	}
 	return tx.Commit()
+}
+
+// ScannedDomains returns the domains the allowlist names, with the excludes
+// and seeds that apply to them.
+func (s *Store) ScannedDomains(ctx context.Context) ([]Domain, error) {
+	domains, err := s.ListDomains(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.ListScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	included := map[string]bool{}
+	for _, e := range entries {
+		if e.Kind == "include" {
+			included[e.Value] = true
+		}
+	}
+	var out []Domain
+	for _, d := range domains {
+		if included[d.Name] {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 
 func kindString(k scope.Kind) (string, error) {

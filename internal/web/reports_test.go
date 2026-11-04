@@ -43,7 +43,7 @@ func seedReportTestScan(t *testing.T, s *Server, public bool) int64 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ep, err := s.deps.Store.UpsertEndpoint(ctx, "report.example.com", 443, "192.0.2.50", id)
+	ep, err := s.deps.Store.UpsertEndpoint(ctx, domID, "report.example.com", 443, "192.0.2.50", id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func seedReportTestScan(t *testing.T, s *Server, public bool) int64 {
 		trust = "private"
 	}
 	v := x509eval.Verdict{Trust: trust, ChainValid: true, HostnameValid: true}
-	if err := s.deps.Store.RecordObservation(ctx, id, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
+	if err := s.deps.Store.RecordObservation(ctx, id, domID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.deps.Store.FinishScan(ctx, id, "done", []byte(`{}`), ""); err != nil {

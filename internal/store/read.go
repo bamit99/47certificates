@@ -37,6 +37,8 @@ type CertSummary struct {
 	RetiredAt    *time.Time
 	HasRaw       bool
 	Findings     []Finding
+	// Endpoints are the endpoints of the domain that served the certificate.
+	Endpoints []CertEndpoint
 }
 
 // CertEndpoint is one endpoint that served a certificate.
@@ -66,15 +68,27 @@ func nullI64(v sql.NullInt64) *int64 {
 	return &x
 }
 
-// ListCerts returns every certificate with its findings, ordered by expiry.
-func (s *Store) ListCerts(ctx context.Context) ([]CertSummary, error) {
+// ListCerts returns the certificates of one domain with their findings,
+// ordered by expiry.
+//
+// The certificate's own metadata is global, but which certificates a domain
+// serves, and the lifecycle within it, are per domain: a certificate
+// colt.net stopped serving is retired there and still live at iana.org.
+func (s *Store) ListCerts(ctx context.Context, domainID int64) ([]CertSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, fingerprint_sha256, COALESCE(subject, ''), COALESCE(issuer_dn, ''),
-		       not_before, not_after, lifetime_days, COALESCE(key_alg, ''), key_bits,
-		       COALESCE(sig_alg, ''), COALESCE(san_json, '[]'), first_seen, last_seen,
-		       retired_at, raw_der IS NOT NULL AND length(raw_der) > 0
-		FROM certs
-		ORDER BY not_after ASC, id ASC`)
+		SELECT c.id, c.fingerprint_sha256, COALESCE(c.subject, ''), COALESCE(c.issuer_dn, ''),
+		       c.not_before, c.not_after, c.lifetime_days, COALESCE(c.key_alg, ''), c.key_bits,
+		       COALESCE(c.sig_alg, ''), COALESCE(c.san_json, '[]'), c.first_seen,
+		       dc.last_seen, dc.retired_at,
+		       c.raw_der IS NOT NULL AND length(c.raw_der) > 0
+		FROM certs c
+		LEFT JOIN domain_certs dc ON dc.cert_id = c.id AND dc.domain_id = ?
+		WHERE dc.cert_id IS NOT NULL
+		   OR EXISTS (SELECT 1 FROM observations o
+		               WHERE o.cert_id = c.id AND o.domain_id = ?)
+		   OR EXISTS (SELECT 1 FROM findings f
+		               WHERE f.cert_id = c.id AND f.domain_id = ?)
+		ORDER BY c.not_after ASC, c.id ASC`, domainID, domainID, domainID)
 	if err != nil {
 		return nil, fmt.Errorf("store: list certs: %w", err)
 	}
@@ -111,7 +125,35 @@ func (s *Store) ListCerts(ctx context.Context) ([]CertSummary, error) {
 		return nil, err
 	}
 
-	fs, err := s.db.QueryContext(ctx, `SELECT cert_id, id, type, COALESCE(detail_json, '{}'), status, snooze_until FROM findings`)
+	// The endpoints of the domain that served each certificate.
+	eps, err := s.db.QueryContext(ctx, `
+		SELECT o.cert_id, e.hostname, e.port, e.ip, COALESCE(o.trust, ''),
+		       o.chain_valid, o.hostname_valid
+		FROM observations o
+		JOIN endpoints e ON e.id = o.endpoint_id
+		WHERE o.domain_id IS ?
+		ORDER BY e.hostname, e.port`, domainID)
+	if err != nil {
+		return nil, err
+	}
+	defer eps.Close()
+	for eps.Next() {
+		var (
+			certID int64
+			e      CertEndpoint
+		)
+		if err := eps.Scan(&certID, &e.Host, &e.Port, &e.IP, &e.Trust, &e.ChainValid, &e.HostnameValid); err != nil {
+			return nil, err
+		}
+		if i, ok := byID[certID]; ok {
+			out[i].Endpoints = append(out[i].Endpoints, e)
+		}
+	}
+	if err := eps.Err(); err != nil {
+		return nil, err
+	}
+
+	fs, err := s.db.QueryContext(ctx, `SELECT cert_id, id, type, COALESCE(detail_json, '{}'), status, snooze_until FROM findings WHERE domain_id IS ?`, domainID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,9 +178,9 @@ func (s *Store) ListCerts(ctx context.Context) ([]CertSummary, error) {
 	return out, fs.Err()
 }
 
-// CertByFingerprint loads one certificate with its findings.
-func (s *Store) CertByFingerprint(ctx context.Context, fp string) (CertSummary, error) {
-	all, err := s.ListCerts(ctx)
+// CertByFingerprint loads one certificate of a domain with its findings.
+func (s *Store) CertByFingerprint(ctx context.Context, domainID int64, fp string) (CertSummary, error) {
+	all, err := s.ListCerts(ctx, domainID)
 	if err != nil {
 		return CertSummary{}, err
 	}
@@ -152,17 +194,17 @@ func (s *Store) CertByFingerprint(ctx context.Context, fp string) (CertSummary, 
 
 // CertEndpoints returns the latest observation of this certificate per
 // endpoint.
-func (s *Store) CertEndpoints(ctx context.Context, certID int64) ([]CertEndpoint, error) {
+func (s *Store) CertEndpoints(ctx context.Context, domainID, certID int64) ([]CertEndpoint, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT e.hostname, e.port, e.ip, COALESCE(o.trust, ''), o.chain_valid, o.hostname_valid
 		FROM observations o
 		JOIN endpoints e ON e.id = o.endpoint_id
-		WHERE o.cert_id = ?
+		WHERE o.cert_id = ? AND o.domain_id IS ?
 		  AND o.scan_id = (
 		    SELECT MAX(o2.scan_id) FROM observations o2
 		    WHERE o2.endpoint_id = o.endpoint_id AND o2.cert_id = o.cert_id
 		  )
-		ORDER BY e.hostname, e.port`, certID)
+		ORDER BY e.hostname, e.port`, certID, domainID)
 	if err != nil {
 		return nil, err
 	}
@@ -194,14 +236,24 @@ func (s *Store) CertPEM(ctx context.Context, fp string) ([]byte, error) {
 	return raw, nil
 }
 
-// ListScans returns scans newest first.
-func (s *Store) ListScans(ctx context.Context, limit int) ([]Scan, error) {
+// ListScans returns the scans of one domain, newest first. A domain id of
+// zero returns the scans of every domain.
+func (s *Store) ListScans(ctx context.Context, domainID int64, limit int) ([]Scan, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, started_at, finished_at, status, trigger, triggered_by, stats_json, error
-		FROM scans ORDER BY id DESC LIMIT ?`, limit)
+	query := `
+		SELECT s.id, s.started_at, s.finished_at, s.status, s.trigger, s.triggered_by,
+		       s.domain_id, s.stats_json, s.error, COALESCE(d.name, '')
+		FROM scans s LEFT JOIN domains d ON d.id = s.domain_id`
+	args := []any{}
+	if domainID > 0 {
+		query += ` WHERE s.domain_id = ?`
+		args = append(args, domainID)
+	}
+	query += ` ORDER BY s.id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -213,10 +265,11 @@ func (s *Store) ListScans(ctx context.Context, limit int) ([]Scan, error) {
 			started int64
 			fin     sql.NullInt64
 			by      sql.NullInt64
+			dom     sql.NullInt64
 			stats   sql.NullString
 			scanErr sql.NullString
 		)
-		if err := rows.Scan(&sc.ID, &started, &fin, &sc.Status, &sc.Trigger, &by, &stats, &scanErr); err != nil {
+		if err := rows.Scan(&sc.ID, &started, &fin, &sc.Status, &sc.Trigger, &by, &dom, &stats, &scanErr, &sc.Domain); err != nil {
 			return nil, err
 		}
 		sc.StartedAt = fromUnix(started)
@@ -227,6 +280,10 @@ func (s *Store) ListScans(ctx context.Context, limit int) ([]Scan, error) {
 		if by.Valid {
 			v := by.Int64
 			sc.TriggeredBy = &v
+		}
+		if dom.Valid {
+			v := dom.Int64
+			sc.DomainID = &v
 		}
 		sc.Stats = stats.String
 		sc.Error = scanErr.String

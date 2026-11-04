@@ -32,12 +32,18 @@ func (s *Server) reportsDir(id int64) string {
 
 func (s *Server) handleReports(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	dom, err := s.domainOf(r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	s.setDomainCookie(w, dom)
 	reports, err := s.deps.Store.ListReports(ctx, 20)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	scans, err := s.deps.Store.ListScans(ctx, 50)
+	scans, err := s.deps.Store.ListScans(ctx, dom.ID, 50)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -116,12 +122,45 @@ func (s *Server) handleReportDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	data := struct {
 		pageData
-		Report store.Report
+		Report  store.Report
+		Formats []formatChoice
 	}{
 		pageData: s.base(r, fmt.Sprintf("Report #%d", id)),
 		Report:   rp,
+		Formats:  formatChoices(rp.Kind),
 	}
 	s.render(w, "report", data)
+}
+
+// formatChoice is one download format of a report.
+type formatChoice struct {
+	Key     string
+	Label   string
+	Default bool
+	Last    bool
+}
+
+// formatChoices returns the formats a report kind offers, with the one that
+// suits it marked as the default.
+func formatChoices(kind string) []formatChoice {
+	def := report.DefaultFormat(report.Kind(kind))
+	all := []struct{ key, label string }{
+		{"pdf", "PDF"},
+		{"html", "HTML"},
+		{"csv", "CSV"},
+		{"json", "JSON"},
+		{"md", "Markdown"},
+	}
+	var out []formatChoice
+	for i, f := range all {
+		out = append(out, formatChoice{
+			Key:     f.key,
+			Label:   f.label,
+			Default: f.key == def,
+			Last:    i == len(all)-1,
+		})
+	}
+	return out
 }
 
 func (s *Server) handleReportDelete(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +197,7 @@ func (s *Server) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch format {
-	case "html", "csv", "json":
+	case "html", "csv", "json", "md", "pdf":
 		var path, contentType string
 		switch format {
 		case "html":
@@ -167,6 +206,14 @@ func (s *Server) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 			path, contentType = rp.CSVPath, "text/csv; charset=utf-8"
 		case "json":
 			path, contentType = rp.JSONPath, "application/json"
+		case "md":
+			path, contentType = rp.MDPath, "text/markdown; charset=utf-8"
+		case "pdf":
+			path, contentType = rp.PDFPath, "application/pdf"
+		}
+		if path == "" {
+			http.Error(w, "that format is not available", http.StatusNotFound)
+			return
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -181,6 +228,8 @@ func (s *Server) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 			"report.html": rp.HTMLPath,
 			"report.csv":  rp.CSVPath,
 			"report.json": rp.JSONPath,
+			"report.md":   rp.MDPath,
+			"report.pdf":  rp.PDFPath,
 		}
 		var buf bytes.Buffer
 		zw := zip.NewWriter(&buf)

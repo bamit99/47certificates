@@ -18,7 +18,7 @@ var assets embed.FS
 var viewTemplates = map[string]*template.Template{}
 
 func init() {
-	for _, p := range []string{"dashboard", "certs", "cert", "domains", "domain", "scans", "scan", "scope", "settings", "audit", "reports", "report"} {
+	for _, p := range []string{"dashboard", "certs", "cert", "columns", "domains", "domain", "scans", "scan", "scope", "settings", "audit", "reports", "report"} {
 		t := template.Must(template.New("layout.html").
 			Funcs(template.FuncMap(funcMap)).
 			ParseFS(assets, "templates/layout.html", "templates/"+p+".html"))
@@ -30,6 +30,9 @@ func init() {
 // the web package does not depend on the jobs implementation.
 type JobTrigger interface {
 	TriggerScan(ctx context.Context, trigger string, userID *int64) (int64, error)
+	// TriggerDomainScan starts a scan of one domain. An empty name scans
+	// every domain in turn.
+	TriggerDomainScan(ctx context.Context, trigger string, userID *int64, domain string) (int64, error)
 	Cancel(scanID int64) error
 	Subscribe(scanID int64) (<-chan scan.Progress, func())
 }
@@ -85,6 +88,8 @@ func New(d Deps) http.Handler {
 	s.mux.Handle("GET /static/", staticHandler())
 	s.mux.HandleFunc("GET /{$}", s.handleDashboard)
 	s.mux.HandleFunc("GET /certs", s.handleCerts)
+	s.mux.HandleFunc("GET /certs/columns", s.handleCertColumns)
+	s.mux.HandleFunc("POST /certs/columns", s.handleCertColumnsPost)
 	s.mux.HandleFunc("GET /certs/{fp}", s.handleCertDetail)
 	s.mux.HandleFunc("GET /certs/{fp}/pem", s.handleCertPEM)
 	s.mux.HandleFunc("GET /domains", s.handleDomains)

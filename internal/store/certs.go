@@ -12,15 +12,16 @@ import (
 	"github.com/amit/47certificates/internal/x509eval"
 )
 
-// UpsertEndpoint records an observed host/port/ip and returns its id.
-func (s *Store) UpsertEndpoint(ctx context.Context, host string, port int, ip string, scanID int64) (int64, error) {
+// UpsertEndpoint records an observed host/port/ip for a domain and returns
+// its id.
+func (s *Store) UpsertEndpoint(ctx context.Context, domainID int64, host string, port int, ip string, scanID int64) (int64, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO endpoints (hostname, port, ip, first_seen_scan, last_seen_scan)
-		 VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO endpoints (hostname, port, ip, domain_id, first_seen_scan, last_seen_scan)
+		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (hostname, port, ip) DO UPDATE SET last_seen_scan = excluded.last_seen_scan
 		 RETURNING id`,
-		host, port, ip, scanID, scanID).Scan(&id)
+		host, port, ip, domainID, scanID, scanID).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("store: upsert endpoint: %w", err)
 	}
@@ -67,11 +68,14 @@ func (s *Store) UpsertCert(ctx context.Context, c x509eval.Cert) (int64, error) 
 	return id, nil
 }
 
-// MarkSeen updates the lifecycle columns of every certificate observed by a
+// MarkSeen updates the lifecycle of every certificate a domain observed in a
 // scan that ended "done": last_seen becomes now and retired_at is cleared,
 // because the certificate is being served right now. It does nothing for
 // scans that did not finish.
-func (s *Store) MarkSeen(ctx context.Context, scanID int64) error {
+//
+// The lifecycle is per domain: a certificate colt.net stopped serving is
+// retired there and still live at iana.org.
+func (s *Store) MarkSeen(ctx context.Context, scanID, domainID int64) error {
 	var status string
 	if err := s.db.QueryRowContext(ctx, `SELECT status FROM scans WHERE id = ?`, scanID).Scan(&status); err != nil {
 		return err
@@ -79,15 +83,21 @@ func (s *Store) MarkSeen(ctx context.Context, scanID int64) error {
 	if status != "done" {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE certs SET last_seen = ?, retired_at = NULL
-		 WHERE id IN (SELECT cert_id FROM observations WHERE scan_id = ?)`,
-		toUnix(time.Now()), scanID)
-	return err
+	now := toUnix(time.Now())
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO domain_certs (domain_id, cert_id, first_seen, last_seen, retired_at)
+		SELECT ?, cert_id, ?, ?, NULL FROM observations WHERE scan_id = ?
+		ON CONFLICT (domain_id, cert_id) DO UPDATE SET
+		    last_seen = excluded.last_seen, retired_at = NULL`,
+		domainID, now, now, scanID)
+	if err != nil {
+		return fmt.Errorf("store: mark seen: %w", err)
+	}
+	return nil
 }
 
 // RecordObservation links a scan, endpoint, and certificate.
-func (s *Store) RecordObservation(ctx context.Context, scanID, endpointID, certID int64, v x509eval.Verdict, tlsVersion, cipher uint16, caa []string) error {
+func (s *Store) RecordObservation(ctx context.Context, scanID, domainID, endpointID, certID int64, v x509eval.Verdict, tlsVersion, cipher uint16, caa []string) error {
 	caaJSON, err := json.Marshal(caa)
 	if err != nil {
 		return err
@@ -95,11 +105,11 @@ func (s *Store) RecordObservation(ctx context.Context, scanID, endpointID, certI
 	now := toUnix(time.Now())
 	_, err = s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO observations
-		 (scan_id, endpoint_id, cert_id, trust, chain_valid, hostname_valid, expired, tls_version, cipher, caa_json)
-		 VALUES (?, ?, ?, ?, ?, ?,
+		 (scan_id, endpoint_id, cert_id, domain_id, trust, chain_valid, hostname_valid, expired, tls_version, cipher, caa_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?,
 		         (SELECT CASE WHEN not_after IS NOT NULL AND not_after < ? THEN 1 ELSE 0 END FROM certs WHERE id = ?),
 		         ?, ?, ?)`,
-		scanID, endpointID, certID, v.Trust, boolInt(v.ChainValid), boolInt(v.HostnameValid),
+		scanID, endpointID, certID, domainID, v.Trust, boolInt(v.ChainValid), boolInt(v.HostnameValid),
 		now, certID,
 		int(tlsVersion), int(cipher), string(caaJSON))
 	return err
@@ -111,7 +121,7 @@ func (s *Store) RecordObservation(ctx context.Context, scanID, endpointID, certI
 // endpointID is nil for certificate-level findings (one row per certificate)
 // and points at the endpoint for endpoint-level findings. Rows in the same
 // scope whose type is not in fs are resolved: the condition no longer holds.
-func (s *Store) SyncFindings(ctx context.Context, scanID, certID int64, endpointID *int64, fs []x509eval.Finding, now time.Time) error {
+func (s *Store) SyncFindings(ctx context.Context, scanID, domainID, certID int64, endpointID *int64, fs []x509eval.Finding, now time.Time) error {
 	var ep any
 	if endpointID != nil {
 		ep = *endpointID
@@ -127,13 +137,13 @@ func (s *Store) SyncFindings(ctx context.Context, scanID, certID int64, endpoint
 		var findingID int64
 		row := s.db.QueryRowContext(ctx,
 			`SELECT id FROM findings
-			 WHERE cert_id = ? AND COALESCE(endpoint_id, 0) = COALESCE(?, 0) AND type = ?`,
-			certID, ep, f.Type)
+			 WHERE domain_id IS ? AND cert_id = ? AND COALESCE(endpoint_id, 0) = COALESCE(?, 0) AND type = ?`,
+			domainID, certID, ep, f.Type)
 		if err := row.Scan(&findingID); err == sql.ErrNoRows {
 			if _, err := s.db.ExecContext(ctx,
-				`INSERT INTO findings (cert_id, endpoint_id, type, phase, detail_json, first_seen, last_seen, scan_id)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				certID, ep, f.Type, phaseName, string(detail), toUnix(now), toUnix(now), scanID); err != nil {
+				`INSERT INTO findings (domain_id, cert_id, endpoint_id, type, phase, detail_json, first_seen, last_seen, scan_id)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				domainID, certID, ep, f.Type, phaseName, string(detail), toUnix(now), toUnix(now), scanID); err != nil {
 				return fmt.Errorf("store: sync finding %s: %w", f.Type, err)
 			}
 			continue
@@ -151,16 +161,16 @@ func (s *Store) SyncFindings(ctx context.Context, scanID, certID int64, endpoint
 			return fmt.Errorf("store: sync finding %s: %w", f.Type, err)
 		}
 	}
-	return s.resolveMissing(ctx, certID, ep, present)
+	return s.resolveMissing(ctx, domainID, certID, ep, present)
 }
 
 // resolveMissing closes the findings in one scope whose type is not in
 // present. Acknowledged rows are left alone: they record a decision the
 // operator made, not a live condition.
-func (s *Store) resolveMissing(ctx context.Context, certID int64, ep any, present []string) error {
-	args := []any{certID, ep}
+func (s *Store) resolveMissing(ctx context.Context, domainID, certID int64, ep any, present []string) error {
+	args := []any{domainID, certID, ep}
 	query := `UPDATE findings SET status = 'resolved'
-	          WHERE cert_id = ? AND COALESCE(endpoint_id, 0) = COALESCE(?, 0)
+	          WHERE domain_id IS ? AND cert_id = ? AND COALESCE(endpoint_id, 0) = COALESCE(?, 0)
 	            AND status IN ('open', 'snoozed')`
 	if len(present) > 0 {
 		query += ` AND type NOT IN (` + placeholders(len(present)) + `)`
@@ -180,7 +190,7 @@ func (s *Store) resolveMissing(ctx context.Context, certID int64, ep any, presen
 //
 // A finding row records the scan that last confirmed it. Anything still
 // carrying an older scan id was not confirmed by this run.
-func (s *Store) ResolveStaleFindings(ctx context.Context, scanID int64) error {
+func (s *Store) ResolveStaleFindings(ctx context.Context, scanID, domainID int64) error {
 	var status string
 	if err := s.db.QueryRowContext(ctx, `SELECT status FROM scans WHERE id = ?`, scanID).Scan(&status); err != nil {
 		return err
@@ -191,9 +201,10 @@ func (s *Store) ResolveStaleFindings(ctx context.Context, scanID int64) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE findings SET status = 'resolved'
 		 WHERE status IN ('open', 'snoozed')
+		   AND domain_id IS ?
 		   AND cert_id IN (SELECT cert_id FROM observations WHERE scan_id = ?)
 		   AND (scan_id IS NULL OR scan_id <> ?)`,
-		scanID, scanID)
+		domainID, scanID, scanID)
 	return err
 }
 

@@ -48,6 +48,10 @@ type CertView struct {
 	OpenCount    int           `json:"open_count"`
 	AckCount     int           `json:"ack_count"`
 	SnoozeCount  int           `json:"snooze_count"`
+	Endpoints    []string      `json:"endpoints"`
+	Trust        string        `json:"trust"`
+	ChainValid   bool          `json:"chain_valid"`
+	HostnameOK   bool          `json:"hostname_valid"`
 	ID           int64         `json:"-"`
 }
 
@@ -98,6 +102,18 @@ func buildCertView(c store.CertSummary, now time.Time) CertView {
 	}
 	v.Bucket = bucketOfViews(openViews(v.Findings))
 	v.Severity = severityOfViews(openViews(v.Findings))
+	for _, e := range c.Endpoints {
+		v.Endpoints = append(v.Endpoints, fmt.Sprintf("%s:%d", e.Host, e.Port))
+		if v.Trust == "" || e.Trust == "public" {
+			v.Trust = e.Trust
+		}
+		if e.ChainValid {
+			v.ChainValid = true
+		}
+		if e.HostnameValid {
+			v.HostnameOK = true
+		}
+	}
 	for _, f := range v.Findings {
 		switch {
 		case f.EffectiveOpen:
@@ -163,10 +179,16 @@ func openViews(fs []FindingView) []FindingView {
 }
 
 // matchStatus reports whether a certificate view matches a ?status= filter.
+//
+// "open" means the certificate is not fully triaged: it still has a finding
+// nobody has acknowledged, or it has no findings at all. A compliant
+// certificate is not hidden for having nothing wrong with it; only a
+// certificate whose findings have all been acknowledged or snoozed drops out
+// of the default view.
 func matchStatus(v CertView, status string) bool {
 	switch status {
 	case "", "open":
-		return v.OpenCount > 0
+		return v.OpenCount > 0 || len(v.Findings) == 0
 	case "acked":
 		return v.AckCount > 0
 	case "snoozed":
@@ -174,7 +196,7 @@ func matchStatus(v CertView, status string) bool {
 	case "all":
 		return true
 	default:
-		return v.OpenCount > 0
+		return v.OpenCount > 0 || len(v.Findings) == 0
 	}
 }
 

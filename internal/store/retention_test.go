@@ -12,8 +12,12 @@ func TestPruneKeepsNewestScans(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 	now := time.Now()
+	domID, err := s.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	certID, err := s.UpsertCert(ctx, x509eval.Cert{
+	certID, err2 := s.UpsertCert(ctx, x509eval.Cert{
 		Fingerprint:  "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 		Subject:      "CN=prune.example.com",
 		Issuer:       "CN=Test CA",
@@ -21,10 +25,10 @@ func TestPruneKeepsNewestScans(t *testing.T) {
 		NotAfter:     now.Add(100 * 24 * time.Hour),
 		LifetimeDays: 110, KeyAlg: "ECDSA", KeyBits: 256, SigAlg: "ECDSA-SHA256",
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err2 != nil {
+		t.Fatal(err2)
 	}
-	if err := s.SyncFindings(ctx, 1, certID, nil, []x509eval.Finding{{Type: "exceeds_47_target", Detail: map[string]any{"lifetime_days": 110}}}, now); err != nil {
+	if err := s.SyncFindings(ctx, 1, domID, certID, nil, []x509eval.Finding{{Type: "exceeds_47_target", Detail: map[string]any{"lifetime_days": 110}}}, now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -35,11 +39,11 @@ func TestPruneKeepsNewestScans(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ep, err := s.UpsertEndpoint(ctx, "prune.example.com", 443, "192.0.2.9", id)
+		ep, err := s.UpsertEndpoint(ctx, domID, "prune.example.com", 443, "192.0.2.9", id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.RecordObservation(ctx, id, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
+		if err := s.RecordObservation(ctx, id, domID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.FinishScan(ctx, id, "done", []byte(`{}`), ""); err != nil {

@@ -30,11 +30,29 @@ type pageData struct {
 	Title string
 	User  store.User
 	CSRF  string
+	// Domain is the domain the page is about.
+	Domain string
+	// Domains are the domains the picker offers.
+	Domains []store.Domain
+	// DomainSearch is the text in the domain search box.
+	DomainSearch string
+	// DomainAction is the path the domain picker submits to.
+	DomainAction string
 }
 
 func (s *Server) base(r *http.Request, title string) pageData {
 	u, _ := UserFrom(r.Context())
-	return pageData{Title: title, User: u, CSRF: CSRFFrom(r.Context())}
+	pd := pageData{Title: title, User: u, CSRF: CSRFFrom(r.Context())}
+	dom, err := s.domainOf(r)
+	if err == nil {
+		pd.Domain = dom.Name
+	}
+	if domains, err := s.domainsForPicker(r.Context(), r.URL.Query().Get("q")); err == nil {
+		pd.Domains = domains
+	}
+	pd.DomainSearch = r.URL.Query().Get("q")
+	pd.DomainAction = r.URL.Path
+	return pd
 }
 
 func (s *Server) render(w http.ResponseWriter, page string, data any) {
@@ -54,8 +72,8 @@ func (s *Server) renderStatus(w http.ResponseWriter, page string, status int, da
 	}
 }
 
-func (s *Server) loadCertViews(ctx context.Context) ([]CertView, error) {
-	cs, err := s.deps.Store.ListCerts(ctx)
+func (s *Server) loadCertViews(ctx context.Context, domainID int64) ([]CertView, error) {
+	cs, err := s.deps.Store.ListCerts(ctx, domainID)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +145,13 @@ func activeCerts(vs []CertView) []CertView {
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	views, err := s.loadCertViews(ctx)
+	dom, err := s.domainOf(r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	s.setDomainCookie(w, dom)
+	views, err := s.loadCertViews(ctx, dom.ID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -148,7 +172,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	recent, _ := s.deps.Store.ListScans(ctx, 6)
+	recent, _ := s.deps.Store.ListScans(ctx, dom.ID, 6)
 	data := struct {
 		pageData
 		Total        int
@@ -157,6 +181,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		Expiring     []CertView
 		RecentScans  []store.Scan
 		CurrentPhase phase.Rules
+		BucketLegend   []legendItem
+		SeverityLegend []legendItem
+		FindingLegend  []legendItem
 	}{
 		pageData:     s.base(r, "Dashboard"),
 		Total:        len(active),
@@ -165,6 +192,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		Expiring:     expiring,
 		RecentScans:  recent,
 		CurrentPhase: phase.For(s.now()),
+		BucketLegend:   bucketLegend,
+		SeverityLegend: severityLegend,
+		FindingLegend:  findingLegend,
 	}
 	s.render(w, "dashboard", data)
 }
@@ -185,7 +215,14 @@ func (s *Server) handleCerts(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 
-	views, err := s.loadCertViews(ctx)
+	dom, err := s.domainOf(r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	s.setDomainCookie(w, dom)
+	u, _ := UserFrom(ctx)
+	views, err := s.loadCertViews(ctx, dom.ID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -224,6 +261,13 @@ func (s *Server) handleCerts(w http.ResponseWriter, r *http.Request) {
 	if start < end {
 		pageCerts = filtered[start:end]
 	}
+	// The columns the operator chose.
+	chosen, err := s.deps.Store.GetCertColumns(ctx, u.ID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	columns := columnsFor(chosen)
 	data := struct {
 		pageData
 		Certs         []CertView
@@ -239,6 +283,7 @@ func (s *Server) handleCerts(w http.ResponseWriter, r *http.Request) {
 			Key   string
 			Label string
 		}
+		Columns []store.CertColumn
 	}{
 		pageData:      s.base(r, "Certificates"),
 		Certs:         pageCerts,
@@ -251,6 +296,7 @@ func (s *Server) handleCerts(w http.ResponseWriter, r *http.Request) {
 		PrevPage:      page - 1,
 		NextPage:      page + 1,
 		BucketOptions: bucketLabels,
+		Columns:       columns,
 	}
 	if page == 1 {
 		data.PrevPage = 0
@@ -268,7 +314,13 @@ func (s *Server) handleCertDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	c, err := s.deps.Store.CertByFingerprint(ctx, fp)
+	dom, err := s.domainOf(r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	s.setDomainCookie(w, dom)
+	c, err := s.deps.Store.CertByFingerprint(ctx, dom.ID, fp)
 	if err != nil {
 		if err == store.ErrNotFound {
 			http.NotFound(w, r)
@@ -278,7 +330,7 @@ func (s *Server) handleCertDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := buildCertView(c, s.now())
-	endpoints, err := s.deps.Store.CertEndpoints(ctx, c.ID)
+	endpoints, err := s.deps.Store.CertEndpoints(ctx, dom.ID, c.ID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -317,7 +369,13 @@ func (s *Server) handleCertPEM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.deps.Store.ListScope(r.Context())
+	ctx := r.Context()
+	entries, err := s.deps.Store.ListScope(ctx)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	domains, err := s.domainsForPicker(ctx, r.URL.Query().Get("q"))
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -325,34 +383,74 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		pageData
 		Entries []store.ScopeEntry
+		Domains []store.Domain
 	}{
 		pageData: s.base(r, "Domains & Scope"),
 		Entries:  entries,
+		Domains:  domains,
 	}
 	s.render(w, "domains", data)
 }
 
+// handleDomainDetail shows one domain: its counts, its certificates and the
+// endpoints it serves.
 func (s *Server) handleDomainDetail(w http.ResponseWriter, r *http.Request) {
-	domain := r.PathValue("d")
-	hosts, err := s.deps.Store.DomainHosts(r.Context(), domain)
+	ctx := r.Context()
+	name := r.PathValue("d")
+	dom, err := s.deps.Store.DomainByName(ctx, name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.setDomainCookie(w, domainRequest{ID: dom.ID, Name: dom.Name})
+	views, err := s.loadCertViews(ctx, dom.ID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	live := activeCerts(views)
+	hosts, err := s.deps.Store.DomainHosts(ctx, dom.Name)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	scans, err := s.deps.Store.ListScans(ctx, dom.ID, 10)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	data := struct {
 		pageData
-		Domain string
-		Hosts  []string
+		Domain   store.Domain
+		Certs    []CertView
+		Hosts    []string
+		Scans    []store.Scan
+		Counts   map[string]int
+		Total    int
+		Retired  int
+		Open     int
 	}{
-		pageData: s.base(r, "Domain "+domain),
-		Domain:   domain,
+		pageData: s.base(r, "Domain "+dom.Name),
+		Domain:   dom,
+		Certs:    live,
 		Hosts:    hosts,
+		Scans:    scans,
+		Counts:   countBuckets(live),
+		Total:    len(live),
+		Retired:  dom.Retired,
+		Open:     dom.Open,
 	}
 	s.render(w, "domain", data)
 }
 
 func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
-	scans, err := s.deps.Store.ListScans(r.Context(), 100)
+	dom, err := s.domainOf(r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	s.setDomainCookie(w, dom)
+	scans, err := s.deps.Store.ListScans(r.Context(), dom.ID, 100)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -487,7 +585,12 @@ func (s *Server) handleScanEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPICerts(w http.ResponseWriter, r *http.Request) {
-	views, err := s.loadCertViews(r.Context())
+	dom, err := s.domainOf(r)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	views, err := s.loadCertViews(r.Context(), dom.ID)
 	if err != nil {
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
@@ -499,7 +602,12 @@ func (s *Server) handleAPICerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIScans(w http.ResponseWriter, r *http.Request) {
-	scans, err := s.deps.Store.ListScans(r.Context(), 100)
+	dom, err := s.domainOf(r)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	scans, err := s.deps.Store.ListScans(r.Context(), dom.ID, 100)
 	if err != nil {
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
@@ -516,10 +624,15 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "format must be csv or json", http.StatusBadRequest)
 		return
 	}
+	dom, err := s.domainOf(r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	scanID, err := strconv.ParseInt(r.URL.Query().Get("scan_id"), 10, 64)
 	if err != nil {
-		// Without a scan, export the newest done scan.
-		scanID, err = s.deps.Store.LatestDoneScan(r.Context())
+		// Without a scan, export the newest done scan of the domain.
+		scanID, err = s.latestDoneScanOf(r, dom.ID)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				http.Error(w, "no completed scan to export", http.StatusNotFound)
@@ -556,6 +669,20 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"47c-export-%d.%s\"", scanID, format))
 	_, _ = w.Write(buf.Bytes())
+}
+
+// latestDoneScanOf returns the newest completed scan of a domain.
+func (s *Server) latestDoneScanOf(r *http.Request, domainID int64) (int64, error) {
+	scans, err := s.deps.Store.ListScans(r.Context(), domainID, 100)
+	if err != nil {
+		return 0, err
+	}
+	for _, sc := range scans {
+		if sc.Status == "done" {
+			return sc.ID, nil
+		}
+	}
+	return 0, store.ErrNotFound
 }
 
 func staticHandler() http.Handler {

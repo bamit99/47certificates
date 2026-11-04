@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"context"
@@ -23,7 +24,11 @@ func GenerateAndStore(ctx context.Context, st *store.Store, reportsDir string, k
 	if err != nil {
 		return store.Report{}, err
 	}
-	reportID, err := st.CreateReport(ctx, scanID, string(kind), userID, params)
+	sc, err := st.ScanByID(ctx, scanID)
+	if err != nil {
+		return store.Report{}, err
+	}
+	reportID, err := st.CreateDomainReport(ctx, scanID, string(kind), userID, sc.OwnerDomainID(), params)
 	if err != nil {
 		return store.Report{}, fmt.Errorf("report: create row: %w", err)
 	}
@@ -50,13 +55,15 @@ func GenerateAndStore(ctx context.Context, st *store.Store, reportsDir string, k
 		filepath.Join(dir, "report.html"),
 		filepath.Join(dir, "report.csv"),
 		filepath.Join(dir, "report.json"),
+		filepath.Join(dir, "report.md"),
+		filepath.Join(dir, "report.pdf"),
 	}
 	sizeTotal, shaJSON, err := hashFiles(paths)
 	if err != nil {
 		_ = st.FailReport(ctx, reportID, err.Error())
 		return store.Report{}, err
 	}
-	if err := st.SaveReportFiles(ctx, reportID, paths[0], paths[1], paths[2], sizeTotal, shaJSON); err != nil {
+	if err := st.SaveReportFiles(ctx, reportID, paths[0], paths[1], paths[2], paths[3], paths[4], sizeTotal, shaJSON); err != nil {
 		_ = st.FailReport(ctx, reportID, err.Error())
 		return store.Report{}, err
 	}
@@ -71,6 +78,8 @@ func writeArtifacts(dir string, a Artifacts) error {
 		"report.html": a.HTML,
 		"report.csv":  a.CSV,
 		"report.json": a.JSON,
+		"report.md":   a.Markdown,
+		"report.pdf":  a.PDF,
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
@@ -92,12 +101,14 @@ func hashFiles(paths []string) (int64, string, error) {
 		hashes = append(hashes, hex.EncodeToString(sum[:]))
 		total += int64(len(data))
 	}
-	combined := sha256.Sum256([]byte(hashes[0] + " " + hashes[1] + " " + hashes[2]))
+	combined := sha256.Sum256([]byte(strings.Join(hashes, " ")))
 	object, err := json.Marshal(map[string]string{
 		"combined": hex.EncodeToString(combined[:]),
 		"html":     hashes[0],
 		"csv":      hashes[1],
 		"json":     hashes[2],
+		"md":       hashes[3],
+		"pdf":      hashes[4],
 	})
 	if err != nil {
 		return 0, "", err

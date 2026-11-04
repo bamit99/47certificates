@@ -41,24 +41,31 @@ func TestOnlyDoneScansRetireCerts(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 	now := time.Now()
+	domID, err := s.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	certID, err := s.UpsertCert(ctx, x509eval.Cert{
+	certID, err2 := s.UpsertCert(ctx, x509eval.Cert{
 		Fingerprint: "aa", Subject: "CN=a", Issuer: "CN=ca",
 		NotBefore: now.Add(-10 * 24 * time.Hour), NotAfter: now.Add(100 * 24 * time.Hour),
 		LifetimeDays: 110, KeyAlg: "ECDSA", KeyBits: 256, SigAlg: "ECDSA-SHA256",
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err2 != nil {
+		t.Fatal(err2)
 	}
 	s1, _ := s.BeginScan(ctx, "cli", nil)
-	ep, _ := s.UpsertEndpoint(ctx, "a.example.com", 443, "127.0.0.1", s1)
-	if err := s.RecordObservation(ctx, s1, ep, certID, x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}, 0x0304, 0x1301, nil); err != nil {
+	ep, _ := s.UpsertEndpoint(ctx, domID, "a.example.com", 443, "127.0.0.1", s1)
+	if err := s.RecordObservation(ctx, s1, domID, ep, certID, x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FinishScan(ctx, s1, "done", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RetireUnseen(ctx, s1); err != nil {
+	if err := s.MarkSeen(ctx, s1, domID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RetireUnseen(ctx, s1, domID); err != nil {
 		t.Fatal(err)
 	}
 	if retired(t, s, certID) {
@@ -69,7 +76,7 @@ func TestOnlyDoneScansRetireCerts(t *testing.T) {
 	if err := s.FinishScan(ctx, s2, "cancelled", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RetireUnseen(ctx, s2); err != nil {
+	if err := s.RetireUnseen(ctx, s2, domID); err != nil {
 		t.Fatal(err)
 	}
 	if retired(t, s, certID) {
@@ -80,7 +87,10 @@ func TestOnlyDoneScansRetireCerts(t *testing.T) {
 	if err := s.FinishScan(ctx, s3, "done", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RetireUnseen(ctx, s3); err != nil {
+	if err := s.MarkSeen(ctx, s3, domID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RetireUnseen(ctx, s3, domID); err != nil {
 		t.Fatal(err)
 	}
 	if !retired(t, s, certID) {
@@ -91,7 +101,7 @@ func TestOnlyDoneScansRetireCerts(t *testing.T) {
 func retired(t *testing.T, s *Store, certID int64) bool {
 	t.Helper()
 	var at *int64
-	if err := s.db.QueryRow("SELECT retired_at FROM certs WHERE id=?", certID).Scan(&at); err != nil {
+	if err := s.db.QueryRow("SELECT retired_at FROM domain_certs WHERE cert_id=?", certID).Scan(&at); err != nil {
 		t.Fatal(err)
 	}
 	return at != nil

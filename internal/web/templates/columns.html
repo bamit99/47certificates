@@ -1,0 +1,16 @@
+{{define "content"}}
+<h1>Choose columns</h1>
+
+<p>Pick the columns the certificate list shows. The choice is yours alone.</p>
+
+<form method="post" action="/certs/columns">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<fieldset class="column-picker">
+<legend>Columns</legend>
+{{range .AllColumns}}
+<label><input type="checkbox" name="columns" value="{{.Key}}" {{if .Checked}}checked{{end}}> {{.Label}} <span class="hint">— {{.Title}}</span></label>
+{{end}}
+</fieldset>
+<p><button type="submit">Save</button> <a href="/certs">Back to the list</a></p>
+</form>
+{{end}}

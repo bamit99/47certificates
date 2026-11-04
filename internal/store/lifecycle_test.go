@@ -14,27 +14,31 @@ func TestCancelledScanDoesNotMoveLifecycle(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 	now := time.Now()
-
-	certID, err := s.UpsertCert(ctx, x509eval.Cert{
-		Fingerprint: "cc", Subject: "CN=a", Issuer: "CN=ca",
-		NotBefore: now.Add(-10 * 24 * time.Hour), NotAfter: now.Add(100 * 24 * time.Hour),
-		LifetimeDays: 110, KeyAlg: "ECDSA", KeyBits: 256, SigAlg: "ECDSA-SHA256",
-	})
+	domID, err := s.EnsureDomain(ctx, "example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	certID, err2 := s.UpsertCert(ctx, x509eval.Cert{
+		Fingerprint: "cc", Subject: "CN=a", Issuer: "CN=ca",
+		NotBefore: now.Add(-10 * 24 * time.Hour), NotAfter: now.Add(100 * 24 * time.Hour),
+		LifetimeDays: 110, KeyAlg: "ECDSA", KeyBits: 256, SigAlg: "ECDSA-SHA256",
+	})
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+
 	// A done scan that observes the certificate sets last_seen.
 	s1, _ := s.BeginScan(ctx, "cli", nil)
-	ep, _ := s.UpsertEndpoint(ctx, "a.example.com", 443, "127.0.0.1", s1)
+	ep, _ := s.UpsertEndpoint(ctx, domID, "a.example.com", 443, "127.0.0.1", s1)
 	v := x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}
-	if err := s.RecordObservation(ctx, s1, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
+	if err := s.RecordObservation(ctx, s1, domID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FinishScan(ctx, s1, "done", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkSeen(ctx, s1); err != nil {
+	if err := s.MarkSeen(ctx, s1, domID); err != nil {
 		t.Fatal(err)
 	}
 	seen := lastSeen(t, s, certID)
@@ -45,14 +49,14 @@ func TestCancelledScanDoesNotMoveLifecycle(t *testing.T) {
 
 	// A cancelled scan observes the certificate again. last_seen must not move.
 	s2, _ := s.BeginScan(ctx, "cli", nil)
-	ep2, _ := s.UpsertEndpoint(ctx, "b.example.com", 443, "127.0.0.2", s2)
-	if err := s.RecordObservation(ctx, s2, ep2, certID, v, 0x0304, 0x1301, nil); err != nil {
+	ep2, _ := s.UpsertEndpoint(ctx, domID, "b.example.com", 443, "127.0.0.2", s2)
+	if err := s.RecordObservation(ctx, s2, domID, ep2, certID, v, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FinishScan(ctx, s2, "cancelled", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkSeen(ctx, s2); err != nil {
+	if err := s.MarkSeen(ctx, s2, domID); err != nil {
 		t.Fatal(err)
 	}
 	seen = lastSeen(t, s, certID)
@@ -67,6 +71,10 @@ func TestReobservedCertIsUnretiredOnlyOnDoneScan(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 	now := time.Now()
+	domID, err := s.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	certID, err := s.UpsertCert(ctx, x509eval.Cert{
 		Fingerprint: "dd", Subject: "CN=a", Issuer: "CN=ca",
@@ -80,14 +88,14 @@ func TestReobservedCertIsUnretiredOnlyOnDoneScan(t *testing.T) {
 
 	// Scan 1 observes it.
 	s1, _ := s.BeginScan(ctx, "cli", nil)
-	ep, _ := s.UpsertEndpoint(ctx, "a.example.com", 443, "127.0.0.1", s1)
-	if err := s.RecordObservation(ctx, s1, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
+	ep, _ := s.UpsertEndpoint(ctx, domID, "a.example.com", 443, "127.0.0.1", s1)
+	if err := s.RecordObservation(ctx, s1, domID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FinishScan(ctx, s1, "done", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkSeen(ctx, s1); err != nil {
+	if err := s.MarkSeen(ctx, s1, domID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +104,7 @@ func TestReobservedCertIsUnretiredOnlyOnDoneScan(t *testing.T) {
 	if err := s.FinishScan(ctx, s2, "done", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RetireUnseen(ctx, s2); err != nil {
+	if err := s.RetireUnseen(ctx, s2, domID); err != nil {
 		t.Fatal(err)
 	}
 	if !retired(t, s, certID) {
@@ -105,14 +113,14 @@ func TestReobservedCertIsUnretiredOnlyOnDoneScan(t *testing.T) {
 
 	// Scan 3 is cancelled but observes it again: it stays retired.
 	s3, _ := s.BeginScan(ctx, "cli", nil)
-	ep3, _ := s.UpsertEndpoint(ctx, "c.example.com", 443, "127.0.0.3", s3)
-	if err := s.RecordObservation(ctx, s3, ep3, certID, v, 0x0304, 0x1301, nil); err != nil {
+	ep3, _ := s.UpsertEndpoint(ctx, domID, "c.example.com", 443, "127.0.0.3", s3)
+	if err := s.RecordObservation(ctx, s3, domID, ep3, certID, v, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FinishScan(ctx, s3, "cancelled", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkSeen(ctx, s3); err != nil {
+	if err := s.MarkSeen(ctx, s3, domID); err != nil {
 		t.Fatal(err)
 	}
 	if !retired(t, s, certID) {
@@ -121,14 +129,14 @@ func TestReobservedCertIsUnretiredOnlyOnDoneScan(t *testing.T) {
 
 	// Scan 4 is done and observes it: it is active again.
 	s4, _ := s.BeginScan(ctx, "cli", nil)
-	ep4, _ := s.UpsertEndpoint(ctx, "d.example.com", 443, "127.0.0.4", s4)
-	if err := s.RecordObservation(ctx, s4, ep4, certID, v, 0x0304, 0x1301, nil); err != nil {
+	ep4, _ := s.UpsertEndpoint(ctx, domID, "d.example.com", 443, "127.0.0.4", s4)
+	if err := s.RecordObservation(ctx, s4, domID, ep4, certID, v, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FinishScan(ctx, s4, "done", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkSeen(ctx, s4); err != nil {
+	if err := s.MarkSeen(ctx, s4, domID); err != nil {
 		t.Fatal(err)
 	}
 	if retired(t, s, certID) {
@@ -142,6 +150,10 @@ func TestFindingsAreClosedWhenConditionEnds(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 	now := time.Now()
+	domID, err := s.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	certID, err := s.UpsertCert(ctx, x509eval.Cert{
 		Fingerprint: "ff", Subject: "CN=a", Issuer: "CN=ca",
@@ -154,7 +166,7 @@ func TestFindingsAreClosedWhenConditionEnds(t *testing.T) {
 
 	// The certificate is too long for the phase: one cert-level finding.
 	fs := []x509eval.Finding{{Type: x509eval.Exceeds47Target, Detail: map[string]any{"lifetime_days": 110}}}
-	if err := s.SyncFindings(ctx, 1, certID, nil, fs, now); err != nil {
+	if err := s.SyncFindings(ctx, 1, domID, certID, nil, fs, now); err != nil {
 		t.Fatal(err)
 	}
 	if status := findingStatus(t, s, certID, x509eval.Exceeds47Target); status != "open" {
@@ -162,7 +174,7 @@ func TestFindingsAreClosedWhenConditionEnds(t *testing.T) {
 	}
 
 	// The next scan finds no such condition: the finding is closed.
-	if err := s.SyncFindings(ctx, 2, certID, nil, nil, now); err != nil {
+	if err := s.SyncFindings(ctx, 2, domID, certID, nil, nil, now); err != nil {
 		t.Fatal(err)
 	}
 	if status := findingStatus(t, s, certID, x509eval.Exceeds47Target); status != "resolved" {
@@ -170,7 +182,7 @@ func TestFindingsAreClosedWhenConditionEnds(t *testing.T) {
 	}
 
 	// The condition returns: the finding is open again.
-	if err := s.SyncFindings(ctx, 3, certID, nil, fs, now); err != nil {
+	if err := s.SyncFindings(ctx, 3, domID, certID, nil, fs, now); err != nil {
 		t.Fatal(err)
 	}
 	if status := findingStatus(t, s, certID, x509eval.Exceeds47Target); status != "open" {
@@ -184,6 +196,10 @@ func TestAcknowledgedFindingIsNotClosed(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 	now := time.Now()
+	domID, err := s.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	certID, err := s.UpsertCert(ctx, x509eval.Cert{
 		Fingerprint: "gg", Subject: "CN=a", Issuer: "CN=ca",
@@ -194,7 +210,7 @@ func TestAcknowledgedFindingIsNotClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs := []x509eval.Finding{{Type: x509eval.Exceeds47Target, Detail: map[string]any{"lifetime_days": 110}}}
-	if err := s.SyncFindings(ctx, 1, certID, nil, fs, now); err != nil {
+	if err := s.SyncFindings(ctx, 1, domID, certID, nil, fs, now); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateUser(ctx, "admin", "hash"); err != nil {
@@ -207,7 +223,7 @@ func TestAcknowledgedFindingIsNotClosed(t *testing.T) {
 	if err := s.AckFinding(ctx, findingID(t, s, certID, x509eval.Exceeds47Target), userID, "accepted"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SyncFindings(ctx, 2, certID, nil, nil, now); err != nil {
+	if err := s.SyncFindings(ctx, 2, domID, certID, nil, nil, now); err != nil {
 		t.Fatal(err)
 	}
 	if status := findingStatus(t, s, certID, x509eval.Exceeds47Target); status != "ack" {
@@ -221,6 +237,10 @@ func TestCertLevelFindingIsStoredOnce(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 	now := time.Now()
+	domID, err := s.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	certID, err := s.UpsertCert(ctx, x509eval.Cert{
 		Fingerprint: "hh", Subject: "CN=a", Issuer: "CN=ca",
@@ -232,11 +252,11 @@ func TestCertLevelFindingIsStoredOnce(t *testing.T) {
 	}
 	fs := []x509eval.Finding{{Type: x509eval.Exceeds47Target, Detail: map[string]any{"lifetime_days": 110}}}
 	for i := 0; i < 5; i++ {
-		ep, _ := s.UpsertEndpoint(ctx, "a.example.com", 443+i, "127.0.0.1", 1)
-		if err := s.SyncFindings(ctx, 1, certID, nil, fs, now); err != nil {
+		ep, _ := s.UpsertEndpoint(ctx, domID, "a.example.com", 443+i, "127.0.0.1", 1)
+		if err := s.SyncFindings(ctx, 1, domID, certID, nil, fs, now); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SyncFindings(ctx, 1, certID, &ep, nil, now); err != nil {
+		if err := s.SyncFindings(ctx, 1, domID, certID, &ep, nil, now); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -253,7 +273,7 @@ func TestCertLevelFindingIsStoredOnce(t *testing.T) {
 func lastSeen(t *testing.T, s *Store, certID int64) *time.Time {
 	t.Helper()
 	var v *int64
-	if err := s.db.QueryRow("SELECT last_seen FROM certs WHERE id=?", certID).Scan(&v); err != nil {
+	if err := s.db.QueryRow("SELECT last_seen FROM domain_certs WHERE cert_id=?", certID).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
 	if v == nil {

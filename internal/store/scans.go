@@ -15,11 +15,13 @@ type Scan struct {
 	Status      string     `json:"status"`
 	Trigger     string     `json:"trigger"`
 	TriggeredBy *int64     `json:"triggered_by,omitempty"`
+	DomainID    *int64     `json:"domain_id,omitempty"`
+	Domain      string     `json:"domain,omitempty"`
 	Stats       string     `json:"stats,omitempty"`
 	Error       string     `json:"error,omitempty"`
 }
 
-// BeginScan inserts a queued scan and returns its id.
+// BeginScan inserts a queued scan for a domain and returns its id.
 func (s *Store) BeginScan(ctx context.Context, trigger string, userID *int64) (int64, error) {
 	now := time.Now()
 	res, err := s.db.ExecContext(ctx,
@@ -27,6 +29,18 @@ func (s *Store) BeginScan(ctx context.Context, trigger string, userID *int64) (i
 		toUnix(now), trigger, userID)
 	if err != nil {
 		return 0, fmt.Errorf("store: begin scan: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// BeginDomainScan inserts a queued scan for one domain and returns its id.
+func (s *Store) BeginDomainScan(ctx context.Context, trigger string, userID *int64, domainID int64) (int64, error) {
+	now := time.Now()
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO scans (started_at, status, trigger, triggered_by, domain_id) VALUES (?, 'queued', ?, ?, ?)`,
+		toUnix(now), trigger, userID, domainID)
+	if err != nil {
+		return 0, fmt.Errorf("store: begin domain scan: %w", err)
 	}
 	return res.LastInsertId()
 }
@@ -73,12 +87,16 @@ func (s *Store) ScanByID(ctx context.Context, id int64) (Scan, error) {
 		started int64
 		fin     sql.NullInt64
 		by      sql.NullInt64
+		dom     sql.NullInt64
 		stats   sql.NullString
 		scanErr sql.NullString
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, started_at, finished_at, status, trigger, triggered_by, stats_json, error FROM scans WHERE id = ?`, id).
-		Scan(&sc.ID, &started, &fin, &sc.Status, &sc.Trigger, &by, &stats, &scanErr)
+		`SELECT s.id, s.started_at, s.finished_at, s.status, s.trigger, s.triggered_by,
+		        s.domain_id, s.stats_json, s.error, COALESCE(d.name, '')
+		 FROM scans s LEFT JOIN domains d ON d.id = s.domain_id
+		 WHERE s.id = ?`, id).
+		Scan(&sc.ID, &started, &fin, &sc.Status, &sc.Trigger, &by, &dom, &stats, &scanErr, &sc.Domain)
 	if err != nil {
 		return Scan{}, err
 	}
@@ -91,15 +109,31 @@ func (s *Store) ScanByID(ctx context.Context, id int64) (Scan, error) {
 		v := by.Int64
 		sc.TriggeredBy = &v
 	}
+	if dom.Valid {
+		v := dom.Int64
+		sc.DomainID = &v
+	}
 	sc.Stats = stats.String
 	sc.Error = scanErr.String
 	return sc, nil
 }
 
-// RetireUnseen marks certs not observed by a scan as retired. It does nothing
-// unless the scan ended done: a cancelled or failed scan must not look like
-// mass retirement.
-func (s *Store) RetireUnseen(ctx context.Context, scanID int64) error {
+// OwnerDomainID returns the domain the scan covers, or zero when the scan is
+// not tied to one.
+func (s Scan) OwnerDomainID() int64 {
+	if s.DomainID == nil {
+		return 0
+	}
+	return *s.DomainID
+}
+
+// RetireUnseen marks the certificates a domain stopped serving as retired.
+//
+// It does nothing unless the scan ended done: a cancelled or failed scan
+// must not look like mass retirement. The retirement is per domain: a
+// certificate colt.net stopped serving is retired there and stays live at
+// iana.org.
+func (s *Store) RetireUnseen(ctx context.Context, scanID, domainID int64) error {
 	var status string
 	if err := s.db.QueryRowContext(ctx, `SELECT status FROM scans WHERE id = ?`, scanID).Scan(&status); err != nil {
 		return err
@@ -107,10 +141,23 @@ func (s *Store) RetireUnseen(ctx context.Context, scanID int64) error {
 	if status != "done" {
 		return nil
 	}
+	now := toUnix(time.Now())
+	// The certificates the domain served before and does not serve now.
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE certs SET retired_at = ?
-		 WHERE retired_at IS NULL
-		   AND id NOT IN (SELECT cert_id FROM observations WHERE scan_id = ?)`,
-		toUnix(time.Now()), scanID)
+		`UPDATE domain_certs SET retired_at = ?
+		 WHERE domain_id = ? AND retired_at IS NULL
+		   AND cert_id NOT IN (SELECT cert_id FROM observations WHERE scan_id = ?)`,
+		now, domainID, scanID)
+	if err != nil {
+		return err
+	}
+	// The findings of a retired certificate no longer hold: nothing serves
+	// it, so there is nothing to report about it.
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE findings SET status = 'resolved'
+		 WHERE status IN ('open', 'snoozed') AND domain_id IS ?
+		   AND cert_id IN (SELECT cert_id FROM domain_certs
+		                   WHERE domain_id = ? AND retired_at IS NOT NULL)`,
+		domainID, domainID)
 	return err
 }

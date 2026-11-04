@@ -57,4 +57,26 @@
 {{else}}
 <p>No scans yet.</p>
 {{end}}
+
+<h2>Legend</h2>
+<details class="legend" open>
+<summary>What each status means</summary>
+
+<h3>Impact buckets</h3>
+<p>The count on each card above is the number of certificates in that bucket. A certificate is counted once, whatever the number of endpoints serving it.</p>
+<dl>
+{{range .BucketLegend}}<dt>{{.Label}}</dt><dd>{{.What}}</dd>{{end}}
+</dl>
+
+<h3>Severities</h3>
+<dl>
+{{range .SeverityLegend}}<dt>{{.Label}}</dt><dd>{{.What}}</dd>{{end}}
+</dl>
+
+<h3>Findings</h3>
+<p>A certificate can have several findings at once. They are independent: a 400-day certificate can be both too long for today and past the 2029 target.</p>
+<dl>
+{{range .FindingLegend}}<dt>{{.Label}}</dt><dd>{{.What}}</dd>{{end}}
+</dl>
+</details>
 {{end}}

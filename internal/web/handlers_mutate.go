@@ -280,16 +280,19 @@ func (s *Server) handleScanTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	u, _ := UserFrom(ctx)
-	id, err := s.deps.Jobs.TriggerScan(ctx, "manual", &u.ID)
+	// A scan covers one domain. An empty domain scans every domain in turn.
+	domain := strings.TrimSpace(r.PostFormValue("domain"))
+	id, err := s.deps.Jobs.TriggerDomainScan(ctx, "manual", &u.ID, domain)
 	if err != nil {
 		if errors.Is(err, jobs.ErrBusy) {
 			http.Error(w, "a scan is already running", http.StatusConflict)
 			return
 		}
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = s.deps.Store.Audit(ctx, &u.ID, "scan.trigger", strconv.FormatInt(id, 10), nil, clientIP(r))
+	_ = s.deps.Store.Audit(ctx, &u.ID, "scan.trigger", strconv.FormatInt(id, 10),
+		[]byte(fmt.Sprintf(`{"domain":%q}`, domain)), clientIP(r))
 	http.Redirect(w, r, "/scans/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 

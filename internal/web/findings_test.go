@@ -16,6 +16,10 @@ import (
 func seedFinding(t *testing.T, s *Server, fp, sans string) (fingerprint string, findingIDs []int64) {
 	t.Helper()
 	ctx := context.Background()
+	domID, err := s.deps.Store.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	nb := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	cert := x509eval.Cert{
@@ -29,13 +33,13 @@ func seedFinding(t *testing.T, s *Server, fp, sans string) (fingerprint string, 
 		SANs: []string{sans},
 		Raw:  []byte("raw" + fp),
 	}
-	certID, err := s.deps.Store.UpsertCert(ctx, cert)
-	if err != nil {
-		t.Fatal(err)
+	certID, err2 := s.deps.Store.UpsertCert(ctx, cert)
+	if err2 != nil {
+		t.Fatal(err2)
 	}
 	v := x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}
 	findings := x509eval.Findings(cert, v, readTestNow)
-	if err := s.deps.Store.SyncFindings(ctx, 1, certID, nil, findings, readTestNow); err != nil {
+	if err := s.deps.Store.SyncFindings(ctx, 1, domID, certID, nil, findings, readTestNow); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := s.deps.Store.DB().Query(`SELECT id FROM findings WHERE cert_id = ?`, certID)
@@ -97,15 +101,19 @@ func TestSnoozeExpires(t *testing.T) {
 	fp, findingIDs := seedFinding(t, s, "6666666666666666666666666666666666666666666666666666666666666666", "snooze.example.com")
 
 	ctx := context.Background()
+	domID, err := st.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range findingIDs {
 		if err := st.SnoozeFinding(ctx, id, 1, readTestNow.Add(time.Hour), readTestNow, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	c, err := st.CertByFingerprint(ctx, fp)
-	if err != nil {
-		t.Fatal(err)
+	c, err2 := st.CertByFingerprint(ctx, domID, fp)
+	if err2 != nil {
+		t.Fatal(err2)
 	}
 	v := buildCertView(c, readTestNow)
 	if v.OpenCount != 0 {

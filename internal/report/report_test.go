@@ -25,11 +25,19 @@ func openStore(t *testing.T) *store.Store {
 	if err := st.Migrate(); err != nil {
 		t.Fatal(err)
 	}
+	domID, err := st.EnsureDomain(context.Background(), "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testDomainID = domID
 	if err := st.ReplaceScope(context.Background(), []scope.Entry{{Kind: scope.Include, Value: "example.com"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	return st
 }
+
+// testDomainID is the domain the report tests use.
+var testDomainID int64
 
 func addCert(t *testing.T, st *store.Store, scanID int64, host, fp string, nb time.Time, lifetime int, sans []string) int64 {
 	t.Helper()
@@ -48,12 +56,12 @@ func addCert(t *testing.T, st *store.Store, scanID int64, host, fp string, nb ti
 	if err != nil {
 		t.Fatal(err)
 	}
-	ep, err := st.UpsertEndpoint(context.Background(), host, 443, "192.0.2.1", scanID)
+	ep, err := st.UpsertEndpoint(context.Background(), testDomainID, host, 443, "192.0.2.1", scanID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	v := x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}
-	if err := st.RecordObservation(context.Background(), scanID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
+	if err := st.RecordObservation(context.Background(), scanID, testDomainID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
 	return certID
@@ -155,7 +163,7 @@ func TestDeltaAgainstPreviousReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	id1, _ := st.CreateReport(context.Background(), scan1, string(Inventory), nil, nil)
-	if err := st.SaveReportFiles(context.Background(), id1, "/nonexistent/a.html", "/nonexistent/a.csv", "/nonexistent/a.json", 1, "sha"); err != nil {
+	if err := st.SaveReportFiles(context.Background(), id1, "/nonexistent/a.html", "/nonexistent/a.csv", "/nonexistent/a.json", "/nonexistent/a.md", "/nonexistent/a.pdf", 1, "sha"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -31,6 +31,10 @@ func TestCancelledScanLeavesLifecycleAlone(t *testing.T) {
 
 	st := openStore(t)
 	ctx := context.Background()
+	domID, err := st.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 	set, _ := scope.New([]scope.Entry{{Kind: scope.Include, Value: "example.com"}})
 
 	first, _ := st.BeginScan(ctx, "cli", nil)
@@ -39,7 +43,7 @@ func TestCancelledScanLeavesLifecycleAlone(t *testing.T) {
 	}
 	var certID int64
 	var lastSeen, retired *int64
-	if err := st.DB().QueryRow(`SELECT id, last_seen, retired_at FROM certs LIMIT 1`).Scan(&certID, &lastSeen, &retired); err != nil {
+	if err := st.DB().QueryRow(`SELECT cert_id, last_seen, retired_at FROM domain_certs LIMIT 1`).Scan(&certID, &lastSeen, &retired); err != nil {
 		t.Fatal(err)
 	}
 	if lastSeen == nil {
@@ -52,7 +56,7 @@ func TestCancelledScanLeavesLifecycleAlone(t *testing.T) {
 	if err := st.FinishScan(ctx, empty, "done", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RetireUnseen(ctx, empty); err != nil {
+	if err := st.RetireUnseen(ctx, empty, domID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,7 +67,7 @@ func TestCancelledScanLeavesLifecycleAlone(t *testing.T) {
 	if _, err := testEngine(st, pool).Run(cancelled, second, set, []int{port}, nil); err == nil {
 		t.Fatal("expected the cancelled scan to fail")
 	}
-	if err := st.DB().QueryRow(`SELECT last_seen, retired_at FROM certs WHERE id = ?`, certID).Scan(&lastSeen, &retired); err != nil {
+	if err := st.DB().QueryRow(`SELECT last_seen, retired_at FROM domain_certs WHERE cert_id = ?`, certID).Scan(&lastSeen, &retired); err != nil {
 		t.Fatal(err)
 	}
 	if lastSeen == nil || *lastSeen != firstSeen {

@@ -38,13 +38,32 @@ func ValidKind(k Kind) bool { return validKinds[k] }
 // ErrScanNotDone is returned when the scan is not in status done.
 var ErrScanNotDone = fmt.Errorf("report: scan is not done")
 
-// Artifacts are the three immutable outputs plus the snapshot the delta of a
-// later report is computed against.
+// Artifacts are the outputs plus the snapshot the delta of a later report is
+// computed against.
 type Artifacts struct {
 	HTML     []byte
 	CSV      []byte
 	JSON     []byte
+	Markdown []byte
+	PDF      []byte
 	Snapshot []store.SnapshotRow
+}
+
+// DefaultFormat returns the format that suits a report kind.
+//
+// The formats are not equal choices: an executive summary is read and
+// printed, a worklist is worked through in a spreadsheet, an inventory is
+// read by a machine and a domain note is pasted into a ticket.
+func DefaultFormat(kind Kind) string {
+	switch kind {
+	case Executive:
+		return "pdf"
+	case Worklist, Inventory:
+		return "csv"
+	case Domain:
+		return "md"
+	}
+	return "html"
 }
 
 // Delta compares against the most recent earlier report of the same kind.
@@ -140,7 +159,7 @@ func Generate(ctx context.Context, st *store.Store, reportID, scanID int64, kind
 	if err != nil {
 		return Artifacts{}, err
 	}
-	certSummaries, err := st.ListCerts(ctx)
+	certSummaries, err := st.ListCerts(ctx, sc.OwnerDomainID())
 	if err != nil {
 		return Artifacts{}, err
 	}
@@ -329,7 +348,19 @@ func Generate(ctx context.Context, st *store.Store, reportID, scanID int64, kind
 	if err != nil {
 		return Artifacts{}, err
 	}
-	return Artifacts{HTML: html, CSV: csv, JSON: jsonBytes, Snapshot: snapshot}, nil
+	markdown := renderMarkdown(kind, view)
+	pdfBytes, err := renderPDF(kind, view)
+	if err != nil {
+		return Artifacts{}, err
+	}
+	return Artifacts{
+		HTML:     html,
+		CSV:      csv,
+		JSON:     jsonBytes,
+		Markdown: markdown,
+		PDF:      pdfBytes,
+		Snapshot: snapshot,
+	}, nil
 }
 
 // snapshotOf reduces the public certificates to the rows a later report

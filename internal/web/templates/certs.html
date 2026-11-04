@@ -1,6 +1,10 @@
 {{define "content"}}
 <h1>Certificates</h1>
-<p><a href="/export?format=csv">Download CSV</a> · <a href="/export?format=json">Download JSON</a></p>
+<p>
+<a href="/export?format=csv{{if .Domain}}&domain={{.Domain}}{{end}}">Download CSV</a> ·
+<a href="/export?format=json{{if .Domain}}&domain={{.Domain}}{{end}}">Download JSON</a> ·
+<a href="/certs/columns">Choose columns</a>
+</p>
 
 <form method="get" action="/certs" class="filter-bar">
 <input type="text" name="q" value="{{.Query}}" placeholder="Search fingerprint, subject, issuer, SAN">
@@ -17,29 +21,44 @@
 {{end}}
 </select>
 <label><input type="checkbox" name="retired" value="1" {{if .Retired}}checked{{end}}> Include retired</label>
+{{if .Domain}}<input type="hidden" name="domain" value="{{.Domain}}">{{end}}
 <button type="submit">Filter</button>
 </form>
 
 {{if .Certs}}
 <table>
-<thead><tr><th>Fingerprint</th><th>Subject</th><th>Expires</th><th>Days</th><th>Bucket</th><th>Severity</th></tr></thead>
+<thead><tr>{{range .Columns}}<th title="{{.Title}}">{{.Label}}</th>{{end}}</tr></thead>
 <tbody>
-{{range .Certs}}
+{{range $cert := .Certs}}
 <tr>
-<td><a href="/certs/{{.Fingerprint}}"><code>{{.ShortFP}}</code></a></td>
-<td>{{.Subject}}</td>
-<td>{{when .NotAfter}}</td>
-<td>{{.DaysLeft}}</td>
-<td><span class="badge {{.Bucket}}">{{.Bucket}}</span></td>
-<td><span class="badge {{.Severity}}">{{.Severity}}</span></td>
+{{range $col := $.Columns}}{{if eq $col.Key "fingerprint"}}<td><a href="/certs/{{$cert.Fingerprint}}{{if $.Domain}}?domain={{$.Domain}}{{end}}"><code>{{$cert.ShortFP}}</code></a></td>
+{{else if eq $col.Key "subject"}}<td>{{$cert.Subject}}</td>
+{{else if eq $col.Key "issuer"}}<td>{{$cert.Issuer}}</td>
+{{else if eq $col.Key "sans"}}<td>{{range $i, $s := $cert.SANs}}{{if $i}}, {{end}}<code>{{$s}}</code>{{end}}</td>
+{{else if eq $col.Key "not_before"}}<td>{{when $cert.NotBefore}}</td>
+{{else if eq $col.Key "not_after"}}<td>{{when $cert.NotAfter}}</td>
+{{else if eq $col.Key "lifetime"}}<td>{{$cert.LifetimeDays}}d</td>
+{{else if eq $col.Key "key"}}<td>{{$cert.KeyAlg}} {{$cert.KeyBits}}</td>
+{{else if eq $col.Key "signature"}}<td>{{$cert.SigAlg}}</td>
+{{else if eq $col.Key "trust"}}<td>{{$cert.Trust}}</td>
+{{else if eq $col.Key "chain"}}<td>{{if $cert.ChainValid}}valid{{else}}invalid{{end}}</td>
+{{else if eq $col.Key "hostname"}}<td>{{if $cert.HostnameOK}}match{{else}}mismatch{{end}}</td>
+{{else if eq $col.Key "bucket"}}<td><span class="badge {{$cert.Bucket}}">{{$cert.Bucket}}</span></td>
+{{else if eq $col.Key "severity"}}<td><span class="badge {{$cert.Severity}}">{{$cert.Severity}}</span></td>
+{{else if eq $col.Key "days_left"}}<td>{{$cert.DaysLeft}}</td>
+{{else if eq $col.Key "endpoints"}}<td>{{range $i, $e := $cert.Endpoints}}{{if $i}}, {{end}}{{$e}}{{end}}</td>
+{{else if eq $col.Key "first_seen"}}<td>{{when $cert.FirstSeen}}</td>
+{{else if eq $col.Key "last_seen"}}<td>{{with $cert.LastSeen}}{{when .}}{{else}}never{{end}}</td>
+{{else if eq $col.Key "retired"}}<td>{{if $cert.Retired}}yes{{else}}no{{end}}</td>
+{{end}}{{end}}
 </tr>
 {{end}}
 </tbody>
 </table>
 <div class="pagination">
-{{if .PrevPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;status={{.Status}}&amp;page={{.PrevPage}}{{if .Retired}}&amp;retired=1{{end}}">Prev</a>{{end}}
+{{if .PrevPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;status={{.Status}}&amp;page={{.PrevPage}}{{if .Retired}}&amp;retired=1{{end}}{{if .Domain}}&amp;domain={{.Domain}}{{end}}">Prev</a>{{end}}
 <span>Page {{.Page}} / {{.Pages}}</span>
-{{if .NextPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;status={{.Status}}&amp;page={{.NextPage}}{{if .Retired}}&amp;retired=1{{end}}">Next</a>{{end}}
+{{if .NextPage}}<a href="/certs?bucket={{.Bucket}}&amp;q={{.Query}}&amp;status={{.Status}}&amp;page={{.NextPage}}{{if .Retired}}&amp;retired=1{{end}}{{if .Domain}}&amp;domain={{.Domain}}{{end}}">Next</a>{{end}}
 </div>
 {{else}}
 <p>No certificates match.</p>

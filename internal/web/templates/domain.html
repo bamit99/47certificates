@@ -1,18 +1,70 @@
 {{define "content"}}
-<h1>Domain: <code>{{.Domain}}</code></h1>
-<p><a href="/domains">&larr; Back to domains</a></p>
+<h1>Domain {{.Domain.Name}}</h1>
 
-<h2>Hosts in inventory</h2>
-{{if .Hosts}}
+<p>
+<a href="/certs?domain={{.Domain.Name}}">Certificates</a> ·
+<a href="/scans?domain={{.Domain.Name}}">Scans</a> ·
+<a href="/reports?domain={{.Domain.Name}}">Reports</a>
+</p>
+
+<div class="cards">
+<div class="card"><span>Certificates</span><b>{{.Total}}</b></div>
+<div class="card"><span>Open findings</span><b>{{.Open}}</b></div>
+<div class="card"><span>Retired</span><b>{{.Retired}}</b></div>
+<div class="card"><span>Endpoints</span><b>{{len .Hosts}}</b></div>
+</div>
+
+<form method="post" action="/scans" style="margin-bottom:1rem">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="domain" value="{{.Domain.Name}}">
+<button type="submit">Scan {{.Domain.Name}} now</button>
+</form>
+
+<h2>Certificates</h2>
+{{if .Certs}}
 <table>
-<thead><tr><th>Hostname</th></tr></thead>
+<thead><tr><th>Subject</th><th>Issuer</th><th>Expires</th><th>Lifetime</th><th>Bucket</th><th>Severity</th></tr></thead>
 <tbody>
-{{range .Hosts}}
-<tr><td>{{.}}</td></tr>
+{{range .Certs}}
+<tr>
+<td><a href="/certs/{{.Fingerprint}}?domain={{$.Domain.Name}}">{{.Subject}}</a></td>
+<td>{{.Issuer}}</td>
+<td>{{when .NotAfter}}</td>
+<td>{{.LifetimeDays}}d</td>
+<td><span class="badge {{.Bucket}}">{{.Bucket}}</span></td>
+<td><span class="badge {{.Severity}}">{{.Severity}}</span></td>
+</tr>
 {{end}}
 </tbody>
 </table>
 {{else}}
-<p>No hostnames discovered yet.</p>
+<p>No certificates observed for this domain yet.</p>
+{{end}}
+
+<h2>Endpoints</h2>
+{{if .Hosts}}
+<p>{{range .Hosts}}{{.}} {{end}}</p>
+{{else}}
+<p>None recorded.</p>
+{{end}}
+
+<h2>Recent scans</h2>
+{{if .Scans}}
+<table>
+<thead><tr><th>ID</th><th>Status</th><th>Trigger</th><th>Started</th><th>Finished</th></tr></thead>
+<tbody>
+{{range .Scans}}
+<tr>
+<td><a href="/scans/{{.ID}}">{{.ID}}</a></td>
+<td>{{.Status}}</td>
+<td>{{.Trigger}}</td>
+<td>{{when .StartedAt}}</td>
+<td>{{with .FinishedAt}}{{when .}}{{else}}—{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>No scans yet.</p>
 {{end}}
 {{end}}

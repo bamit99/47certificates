@@ -1,18 +1,40 @@
 {{define "content"}}
-<h1>Domains &amp; Scope</h1>
+<h1>Domains</h1>
+
+<p>Each domain has its own inventory. Scan one from its page.</p>
+
+<form method="get" action="/domains" class="filter-bar">
+<p><label>Search<br><input type="search" name="q" value="{{.DomainSearch}}" placeholder="domain name" autocomplete="off"></label></p>
+<button type="submit">Search</button>
+{{if .DomainSearch}}<a href="/domains">Clear</a>{{end}}
+</form>
+
+{{if .Domains}}
 <table>
-<thead><tr><th>Kind</th><th>Value</th><th>Note</th><th>Created</th></tr></thead>
+<thead><tr><th>Domain</th><th>Certificates</th><th>Endpoints</th><th>Open findings</th><th>Retired</th><th></th></tr></thead>
 <tbody>
-{{range .Entries}}
+{{range .Domains}}
 <tr>
-<td>{{.Kind}}</td>
-<td><a href="/domains/{{.Value}}"><code>{{.Value}}</code></a></td>
-<td>{{.Note}}</td>
-<td>{{when .CreatedAt}}</td>
+<td><a href="/domains/{{.Name}}">{{.Name}}</a></td>
+<td>{{.Certs}}</td>
+<td>{{.Endpoints}}</td>
+<td>{{.Open}}</td>
+<td>{{.Retired}}</td>
+<td><a href="/certs?domain={{.Name}}">Certificates</a> · <a href="/scans?domain={{.Name}}">Scans</a></td>
 </tr>
-{{else}}
-<tr><td colspan="4">No scope entries.</td></tr>
 {{end}}
 </tbody>
 </table>
+{{else}}
+<p>{{if .DomainSearch}}No domain matches “{{.DomainSearch}}”.{{else}}No domains yet. Add one to the scope below.{{end}}</p>
+{{end}}
+
+<h2>Scope</h2>
+<p>The allowlist. Every <code>include</code> entry is a domain that is scanned; every <code>exclude</code> removes a host from every domain; a <code>seed</code> must sit inside an include.</p>
+<form method="post" action="/scope">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<textarea name="entries" rows="12" cols="60" spellcheck="false">{{range .Entries}}{{.Kind}}:{{.Value}}
+{{end}}</textarea>
+<p><button type="submit">Replace scope</button></p>
+</form>
 {{end}}

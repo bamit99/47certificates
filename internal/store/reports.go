@@ -17,6 +17,8 @@ type Report struct {
 	HTMLPath   string     `json:"html_path"`
 	CSVPath    string     `json:"csv_path"`
 	JSONPath   string     `json:"json_path"`
+	MDPath     string     `json:"md_path"`
+	PDFPath    string     `json:"pdf_path"`
 	SizeBytes  int64      `json:"size_bytes"`
 	SHA256     string     `json:"sha256"`
 	CreatedBy  *int64     `json:"created_by,omitempty"`
@@ -24,19 +26,29 @@ type Report struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	Params     string     `json:"params_json,omitempty"`
+	Domain     string     `json:"domain,omitempty"`
 }
 
 // CreateReport inserts a generating report row and returns its id.
 func (s *Store) CreateReport(ctx context.Context, scanID int64, kind string, userID *int64, params []byte) (int64, error) {
+	return s.CreateDomainReport(ctx, scanID, kind, userID, 0, params)
+}
+
+// CreateDomainReport inserts a generating report row for one domain.
+func (s *Store) CreateDomainReport(ctx context.Context, scanID int64, kind string, userID *int64, domainID int64, params []byte) (int64, error) {
 	now := toUnix(time.Now())
 	paramsVal := []byte("{}")
 	if len(params) > 0 {
 		paramsVal = params
 	}
+	var domainVal any
+	if domainID > 0 {
+		domainVal = domainID
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO reports (scan_id, kind, status, params_json, created_by, created_at)
-		 VALUES (?, ?, 'generating', ?, ?, ?)`,
-		scanID, kind, string(paramsVal), userID, now)
+		`INSERT INTO reports (scan_id, kind, status, params_json, created_by, created_at, domain_id)
+		 VALUES (?, ?, 'generating', ?, ?, ?, ?)`,
+		scanID, kind, string(paramsVal), userID, now, domainVal)
 	if err != nil {
 		return 0, fmt.Errorf("store: create report: %w", err)
 	}
@@ -52,17 +64,23 @@ func (s *Store) ReportByID(ctx context.Context, id int64) (Report, error) {
 		hp      sql.NullString
 		cp      sql.NullString
 		jp      sql.NullString
+		mp      sql.NullString
+		pp      sql.NullString
 		sha     sql.NullString
 		size    sql.NullInt64
 		params  sql.NullString
 		errMsg  sql.NullString
 		started int64
+		dom     sql.NullInt64
 	)
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, scan_id, kind, status, html_path, csv_path, json_path, size_bytes,
-		       sha256, created_by, created_at, finished_at, error, params_json
-		FROM reports WHERE id = ?`, id).
-		Scan(&r.ID, &r.ScanID, &r.Kind, &r.Status, &hp, &cp, &jp, &size, &sha, &by, &started, &fin, &errMsg, &params)
+		SELECT r.id, r.scan_id, r.kind, r.status, r.html_path, r.csv_path, r.json_path,
+		       r.md_path, r.pdf_path, r.size_bytes, r.sha256, r.created_by, r.created_at,
+		       r.finished_at, r.error, r.params_json, r.domain_id, COALESCE(d.name, '')
+		FROM reports r LEFT JOIN domains d ON d.id = r.domain_id
+		WHERE r.id = ?`, id).
+		Scan(&r.ID, &r.ScanID, &r.Kind, &r.Status, &hp, &cp, &jp, &mp, &pp, &size, &sha, &by, &started,
+			&fin, &errMsg, &params, &dom, &r.Domain)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Report{}, ErrNotFound
@@ -72,6 +90,8 @@ func (s *Store) ReportByID(ctx context.Context, id int64) (Report, error) {
 	r.HTMLPath = hp.String
 	r.CSVPath = cp.String
 	r.JSONPath = jp.String
+	r.MDPath = mp.String
+	r.PDFPath = pp.String
 	r.SizeBytes = size.Int64
 	r.SHA256 = sha.String
 	r.Error = errMsg.String
@@ -89,11 +109,12 @@ func (s *Store) ReportByID(ctx context.Context, id int64) (Report, error) {
 }
 
 // SaveReportFiles records the artifact paths and marks the report done.
-func (s *Store) SaveReportFiles(ctx context.Context, id int64, htmlPath, csvPath, jsonPath string, sizeBytes int64, sha256 string) error {
+func (s *Store) SaveReportFiles(ctx context.Context, id int64, htmlPath, csvPath, jsonPath, mdPath, pdfPath string, sizeBytes int64, sha256 string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE reports
-		SET status='done', html_path=?, csv_path=?, json_path=?, size_bytes=?, sha256=?, finished_at=?
-		WHERE id=?`, htmlPath, csvPath, jsonPath, sizeBytes, sha256, toUnix(time.Now()), id)
+		SET status='done', html_path=?, csv_path=?, json_path=?, md_path=?, pdf_path=?,
+		    size_bytes=?, sha256=?, finished_at=?
+		WHERE id=?`, htmlPath, csvPath, jsonPath, mdPath, pdfPath, sizeBytes, sha256, toUnix(time.Now()), id)
 	return err
 }
 

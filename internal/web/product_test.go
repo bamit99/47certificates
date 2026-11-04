@@ -17,7 +17,12 @@ func TestExportCSVAndJSON(t *testing.T) {
 	s, st, cookie := newReadTestServer(t)
 	ctx := context.Background()
 
-	scanID, err := st.BeginScan(ctx, "cli", nil)
+	domID, err := st.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = domID
+	scanID, err := st.BeginDomainScan(ctx, "cli", nil, domID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,19 +36,19 @@ func TestExportCSVAndJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ep, err := st.UpsertEndpoint(ctx, "a.example.com", 443, "192.0.2.1", scanID)
+	ep, err := st.UpsertEndpoint(ctx, domID, "a.example.com", 443, "192.0.2.1", scanID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	v := x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}
-	if err := st.RecordObservation(ctx, scanID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
+	if err := st.RecordObservation(ctx, scanID, domID, ep, certID, v, 0x0304, 0x1301, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.FinishScan(ctx, scanID, "done", []byte(`{}`), ""); err != nil {
 		t.Fatal(err)
 	}
 
-	rec := getAuth(s, "/export?format=csv", cookie)
+	rec := getAuth(s, "/export?format=csv&domain=example.com", cookie)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("csv status = %d", rec.Code)
 	}
@@ -54,7 +59,7 @@ func TestExportCSVAndJSON(t *testing.T) {
 		t.Fatalf("Content-Disposition = %q", cd)
 	}
 
-	rec = getAuth(s, "/export?format=json", cookie)
+	rec = getAuth(s, "/export?format=json&domain=example.com", cookie)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("json status = %d", rec.Code)
 	}
@@ -69,7 +74,7 @@ func TestExportCSVAndJSON(t *testing.T) {
 	}
 
 	// An unknown format is refused.
-	rec = getAuth(s, "/export?format=pdf", cookie)
+	rec = getAuth(s, "/export?format=pdf&domain=example.com", cookie)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad format status = %d", rec.Code)
 	}
@@ -126,7 +131,12 @@ func TestScanStatsAreWrittenWhileRunning(t *testing.T) {
 	_, st, _ := newReadTestServer(t)
 	ctx := context.Background()
 
-	scanID, err := st.BeginScan(ctx, "cli", nil)
+	domID, err := st.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = domID
+	scanID, err := st.BeginDomainScan(ctx, "cli", nil, domID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +195,12 @@ func TestRetentionSettingIsAScanCount(t *testing.T) {
 func TestUpdateScanStatsLeavesTerminalScansAlone(t *testing.T) {
 	_, st, _ := newReadTestServer(t)
 	ctx := context.Background()
-	scanID, err := st.BeginScan(ctx, "cli", nil)
+	domID, err := st.EnsureDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = domID
+	scanID, err := st.BeginDomainScan(ctx, "cli", nil, domID)
 	if err != nil {
 		t.Fatal(err)
 	}

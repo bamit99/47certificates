@@ -18,6 +18,9 @@ import (
 
 var readTestNow = time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 
+// domID is the domain the read tests use.
+var domID int64
+
 func newReadTestServer(t *testing.T) (*Server, *store.Store, *http.Cookie) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
@@ -33,6 +36,10 @@ func newReadTestServer(t *testing.T) (*Server, *store.Store, *http.Cookie) {
 		t.Fatal(err)
 	}
 	if err := st.CreateUser(context.Background(), "admin", hash); err != nil {
+		t.Fatal(err)
+	}
+	domID, err = st.EnsureDomain(context.Background(), "example.com")
+	if err != nil {
 		t.Fatal(err)
 	}
 	s := New(Deps{
@@ -76,7 +83,7 @@ func TestCertsListFiltersByBucket(t *testing.T) {
 		t.Fatal(err)
 	}
 	findingsA := x509eval.Findings(certA, x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}, readTestNow)
-	if err := st.SyncFindings(ctx, 1, idA, nil, findingsA, readTestNow); err != nil {
+	if err := st.SyncFindings(ctx, 1, domID, idA, nil, findingsA, readTestNow); err != nil {
 		t.Fatal(err)
 	}
 
@@ -98,7 +105,7 @@ func TestCertsListFiltersByBucket(t *testing.T) {
 		t.Fatal(err)
 	}
 	findingsB := x509eval.Findings(certB, x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}, readTestNow)
-	if err := st.SyncFindings(ctx, 1, idB, nil, findingsB, readTestNow); err != nil {
+	if err := st.SyncFindings(ctx, 1, domID, idB, nil, findingsB, readTestNow); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,21 +151,21 @@ func TestCertDetailShowsEndpointAndWhy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ep1, err := st.UpsertEndpoint(ctx, "ep1.example.com", 443, "192.0.2.1", scanID)
+	ep1, err := st.UpsertEndpoint(ctx, domID, "ep1.example.com", 443, "192.0.2.1", scanID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ep2, err := st.UpsertEndpoint(ctx, "ep2.example.com", 8443, "192.0.2.2", scanID)
+	ep2, err := st.UpsertEndpoint(ctx, domID, "ep2.example.com", 8443, "192.0.2.2", scanID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	v := x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}
-	_ = st.RecordObservation(ctx, scanID, ep1, certID, v, 0x0304, 0x1301, nil)
-	_ = st.RecordObservation(ctx, scanID, ep2, certID, v, 0x0304, 0x1301, nil)
+	_ = st.RecordObservation(ctx, scanID, domID, ep1, certID, v, 0x0304, 0x1301, nil)
+	_ = st.RecordObservation(ctx, scanID, domID, ep2, certID, v, 0x0304, 0x1301, nil)
 
 	findings := x509eval.Findings(cert, v, readTestNow)
-	if err := st.SyncFindings(ctx, scanID, certID, &ep1, findings, readTestNow); err != nil {
+	if err := st.SyncFindings(ctx, scanID, domID, certID, &ep1, findings, readTestNow); err != nil {
 		t.Fatal(err)
 	}
 
@@ -200,7 +207,7 @@ func TestDashboardCountsBucketsNotRows(t *testing.T) {
 	}
 	v := x509eval.Verdict{Trust: "public", ChainValid: true, HostnameValid: true}
 	findings := x509eval.Findings(cert, v, readTestNow)
-	if err := st.SyncFindings(ctx, 1, certID, nil, findings, readTestNow); err != nil {
+	if err := st.SyncFindings(ctx, 1, domID, certID, nil, findings, readTestNow); err != nil {
 		t.Fatal(err)
 	}
 

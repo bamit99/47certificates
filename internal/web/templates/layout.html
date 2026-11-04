@@ -17,6 +17,18 @@
 <a href="/reports">Reports</a>
 <a href="/audit">Audit</a>
 </nav>
+{{if .Domains}}
+<form class="domain-picker" method="get" action="{{.DomainAction}}" style="margin:0">
+<label for="domain-select">Domain</label>
+<select id="domain-select" name="domain" onchange="this.form.submit()">
+{{range .Domains}}<option value="{{.Name}}"{{if eq .Name $.Domain}} selected{{end}}>{{.Name}}</option>{{end}}
+</select>
+<noscript><button type="submit">Go</button></noscript>
+</form>
+<form class="domain-search" method="get" action="/domains" style="margin:0">
+<input type="search" name="q" placeholder="Search domains" value="{{.DomainSearch}}" aria-label="Search domains">
+</form>
+{{end}}
 <form method="post" action="/logout" style="margin:0">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <button type="submit">Sign out ({{.User.Username}})</button>

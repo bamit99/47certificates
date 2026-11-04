@@ -61,8 +61,28 @@ type Engine struct {
 	Wait bool
 }
 
+// domainFor resolves the domain a scan covers. A scan covers one domain, so
+// the scope must name exactly one.
+//
+// The lookup uses its own context: a scan whose context is already cancelled
+// must still be able to name its domain, or the scan would never record a
+// terminal status.
+func (e *Engine) domainFor(ctx context.Context, set *scope.Set) (int64, error) {
+	includes := set.Includes()
+	if len(includes) != 1 {
+		return 0, fmt.Errorf("scan: a scan covers exactly one domain, the scope names %d", len(includes))
+	}
+	lookupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return e.Store.EnsureDomain(lookupCtx, includes[0])
+}
+
 // Run executes the scan identified by scanID. It always records a terminal
-// status. A cancelled context cancels the scan and never retires certificates.
+// status. A cancelled context cancels the scan and never retires
+// certificates.
+//
+// The scope must cover exactly one domain: a scan's observations, lifecycle
+// and findings all belong to that domain, so nothing mixes between estates.
 func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []int, progress func(Progress)) (Stats, error) {
 	if e.Store == nil {
 		return Stats{}, errors.New("scan: engine has no store")
@@ -75,6 +95,11 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 	}
 	if len(ports) == 0 {
 		ports = []int{443}
+	}
+	domainID, err := e.domainFor(ctx, set)
+	if err != nil {
+		e.finish(scanID, "failed", Stats{}, err.Error())
+		return Stats{}, err
 	}
 	now := time.Now
 	if e.Now != nil {
@@ -237,7 +262,7 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 				stats.Failed++
 				return
 			}
-			trust, err := e.record(ctx, scanID, obs, now())
+			trust, err := e.record(ctx, scanID, domainID, obs, now())
 			if err != nil {
 				mu.Lock()
 				if runErr == nil {
@@ -277,20 +302,20 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 	// observations and progress but must never look like mass retirement.
 	finalizeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := e.Store.MarkSeen(finalizeCtx, scanID); err != nil {
+	if err := e.Store.MarkSeen(finalizeCtx, scanID, domainID); err != nil {
 		return stats, err
 	}
-	if err := e.Store.ResolveStaleFindings(finalizeCtx, scanID); err != nil {
+	if err := e.Store.ResolveStaleFindings(finalizeCtx, scanID, domainID); err != nil {
 		return stats, err
 	}
-	if err := e.Store.RetireUnseen(finalizeCtx, scanID); err != nil {
+	if err := e.Store.RetireUnseen(finalizeCtx, scanID, domainID); err != nil {
 		return stats, err
 	}
 	report(Progress{Stage: "done", Done: len(endpoints), Total: len(endpoints)})
 	return stats, nil
 }
 
-func (e *Engine) record(ctx context.Context, scanID int64, obs collect.Observation, now time.Time) (string, error) {
+func (e *Engine) record(ctx context.Context, scanID, domainID int64, obs collect.Observation, now time.Time) (string, error) {
 	c, err := x509eval.Parse(obs.LeafDER, obs.ChainDER)
 	if err != nil {
 		return "", err
@@ -307,17 +332,17 @@ func (e *Engine) record(ctx context.Context, scanID int64, obs collect.Observati
 	if err != nil {
 		return "", err
 	}
-	endpointID, err := e.Store.UpsertEndpoint(ctx, obs.Endpoint.Host, obs.Endpoint.Port, obs.Endpoint.IP, scanID)
+	endpointID, err := e.Store.UpsertEndpoint(ctx, domainID, obs.Endpoint.Host, obs.Endpoint.Port, obs.Endpoint.IP, scanID)
 	if err != nil {
 		return "", err
 	}
-	if err := e.Store.RecordObservation(ctx, scanID, endpointID, certID, v, obs.TLSVersion, obs.Cipher, obs.CAA); err != nil {
+	if err := e.Store.RecordObservation(ctx, scanID, domainID, endpointID, certID, v, obs.TLSVersion, obs.Cipher, obs.CAA); err != nil {
 		return "", err
 	}
-	if err := e.Store.SyncFindings(ctx, scanID, certID, nil, certLevel, now); err != nil {
+	if err := e.Store.SyncFindings(ctx, scanID, domainID, certID, nil, certLevel, now); err != nil {
 		return "", err
 	}
-	if err := e.Store.SyncFindings(ctx, scanID, certID, &endpointID, endpointLevel, now); err != nil {
+	if err := e.Store.SyncFindings(ctx, scanID, domainID, certID, &endpointID, endpointLevel, now); err != nil {
 		return "", err
 	}
 	return v.Trust, nil
