@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amit/47certificates/internal/auth"
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/auth"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 const (

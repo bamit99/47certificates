@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 func seedReportTestScan(t *testing.T, s *Server, public bool) int64 {

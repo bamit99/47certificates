@@ -3,7 +3,7 @@ package x509eval
 import (
 	"time"
 
-	"github.com/amit/47certificates/internal/phase"
+	"github.com/bamit99/47certificates/internal/phase"
 )
 
 // Finding is one reason a certificate needs attention. Findings overlap: a

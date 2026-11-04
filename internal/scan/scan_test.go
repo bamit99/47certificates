@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/scope"
-	"github.com/amit/47certificates/internal/store"
-	"github.com/amit/47certificates/internal/testutil"
+	"github.com/bamit99/47certificates/internal/scope"
+	"github.com/bamit99/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/testutil"
 )
 
 type fakeSource struct{ names []string }

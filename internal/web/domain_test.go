@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 // seedDomainCert records a certificate observed by a domain.

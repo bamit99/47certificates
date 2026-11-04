@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 func openStore(t *testing.T) *store.Store {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amit/47certificates/internal/notify"
+	"github.com/bamit99/47certificates/internal/notify"
 )
 
 // A webhook URL must not point at a link-local metadata endpoint.

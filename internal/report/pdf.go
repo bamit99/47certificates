@@ -3,7 +3,7 @@ package report
 import (
 	"fmt"
 
-	"github.com/amit/47certificates/internal/pdf"
+	"github.com/bamit99/47certificates/internal/pdf"
 )
 
 // pdfMargins are the page margins in points.

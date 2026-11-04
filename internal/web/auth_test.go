@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/auth"
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/auth"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 func newTestServer(t *testing.T) *Server {

@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amit/47certificates/internal/scan"
-	"github.com/amit/47certificates/internal/scope"
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/scan"
+	"github.com/bamit99/47certificates/internal/scope"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 // ErrBusy is returned when a scan is already running.

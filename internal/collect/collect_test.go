@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/roots"
-	"github.com/amit/47certificates/internal/testutil"
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/roots"
+	"github.com/bamit99/47certificates/internal/testutil"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 // tlsServer serves TLS on loopback and selects a certificate by SNI.

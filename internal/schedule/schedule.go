@@ -11,9 +11,9 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"github.com/amit/47certificates/internal/notify"
-	"github.com/amit/47certificates/internal/report"
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/notify"
+	"github.com/bamit99/47certificates/internal/report"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 // New parses spec as a standard 5-field cron expression and returns a new,

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amit/47certificates/internal/testutil"
+	"github.com/bamit99/47certificates/internal/testutil"
 )
 
 // pemBlock wraps DER in a PEM certificate block.

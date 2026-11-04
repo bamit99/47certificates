@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 func openTest(t *testing.T) *Store {

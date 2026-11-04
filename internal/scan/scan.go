@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amit/47certificates/internal/collect"
-	"github.com/amit/47certificates/internal/discover"
-	"github.com/amit/47certificates/internal/scope"
-	"github.com/amit/47certificates/internal/store"
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/collect"
+	"github.com/bamit99/47certificates/internal/discover"
+	"github.com/bamit99/47certificates/internal/scope"
+	"github.com/bamit99/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 // Progress is emitted while a scan advances.

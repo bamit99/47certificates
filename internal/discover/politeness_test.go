@@ -5,7 +5,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/amit/47certificates/internal/scope"
+	"github.com/bamit99/47certificates/internal/scope"
 )
 
 // A cached resolution is replayed instead of asking the resolver again. The

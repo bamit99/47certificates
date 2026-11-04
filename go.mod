@@ -1,4 +1,4 @@
-module github.com/amit/47certificates
+module github.com/bamit99/47certificates
 
 go 1.24
 

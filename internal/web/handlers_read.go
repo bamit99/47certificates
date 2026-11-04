@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amit/47certificates/internal/phase"
-	"github.com/amit/47certificates/internal/scan"
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/phase"
+	"github.com/bamit99/47certificates/internal/scan"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 var funcMap = map[string]any{

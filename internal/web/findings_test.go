@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 // seedFinding returns a fingerprint and all open finding ids for the cert.

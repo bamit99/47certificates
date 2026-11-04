@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/amit/47certificates/internal/phase"
+	"github.com/bamit99/47certificates/internal/phase"
 )
 
 // Cert holds the persisted facts about one leaf certificate.

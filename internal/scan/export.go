@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/amit/47certificates/internal/csvsafe"
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/csvsafe"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 var csvHeader = []string{

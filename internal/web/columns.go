@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 // columnChoice is one column with the state of its checkbox.

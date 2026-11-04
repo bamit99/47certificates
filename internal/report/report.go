@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amit/47certificates/internal/phase"
-	"github.com/amit/47certificates/internal/store"
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/phase"
+	"github.com/bamit99/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 const Version = "dev"

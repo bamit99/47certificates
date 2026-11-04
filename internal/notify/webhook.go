@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amit/47certificates/internal/roots"
+	"github.com/bamit99/47certificates/internal/roots"
 )
 
 // Webhook posts report notifications to an HTTPS endpoint with an HMAC

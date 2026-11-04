@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/amit/47certificates/internal/scope"
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/scope"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 // A certificate served by several endpoints is one certificate: the report

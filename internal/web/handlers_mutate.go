@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amit/47certificates/internal/jobs"
-	"github.com/amit/47certificates/internal/notify"
-	"github.com/amit/47certificates/internal/scope"
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/jobs"
+	"github.com/bamit99/47certificates/internal/notify"
+	"github.com/bamit99/47certificates/internal/scope"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 // settingsSpec documents the keys the UI accepts. Unknown keys are ignored.

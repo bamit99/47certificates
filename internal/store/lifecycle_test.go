@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 // A cancelled scan must not move last_seen or resurrect a retired

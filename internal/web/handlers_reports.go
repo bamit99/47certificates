@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/amit/47certificates/internal/report"
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/report"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 func (s *Server) dataDir() string {

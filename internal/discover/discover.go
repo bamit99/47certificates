@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amit/47certificates/internal/scope"
+	"github.com/bamit99/47certificates/internal/scope"
 )
 
 // Source yields candidate hostnames for a domain. Names may be wildcards and

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/amit/47certificates/internal/roots"
+	"github.com/bamit99/47certificates/internal/roots"
 )
 
 // safeDialer refuses to connect to addresses that are not publicly routable.

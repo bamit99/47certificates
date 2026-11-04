@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 // domainRequest is the domain a request is about.

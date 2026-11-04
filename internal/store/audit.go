@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amit/47certificates/internal/scope"
+	"github.com/bamit99/47certificates/internal/scope"
 )
 
 // AuditEntry is one row of audit_log.

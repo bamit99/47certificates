@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amit/47certificates/internal/scope"
+	"github.com/bamit99/47certificates/internal/scope"
 )
 
 type fakeSource struct {

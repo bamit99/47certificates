@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amit/47certificates/internal/roots"
+	"github.com/bamit99/47certificates/internal/roots"
 )
 
 const maxCTBody = 8 << 20

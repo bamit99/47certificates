@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 // safeNext returns a path the server is willing to redirect to. Only local

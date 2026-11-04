@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/roots"
-	"github.com/amit/47certificates/internal/testutil"
+	"github.com/bamit99/47certificates/internal/roots"
+	"github.com/bamit99/47certificates/internal/testutil"
 )
 
 func TestVerifyPublicChain(t *testing.T) {

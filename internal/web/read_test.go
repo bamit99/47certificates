@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amit/47certificates/internal/auth"
-	"github.com/amit/47certificates/internal/store"
-	"github.com/amit/47certificates/internal/x509eval"
+	"github.com/bamit99/47certificates/internal/auth"
+	"github.com/bamit99/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
 var readTestNow = time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)

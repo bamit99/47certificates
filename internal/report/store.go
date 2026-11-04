@@ -13,7 +13,7 @@ import (
 
 	"context"
 
-	"github.com/amit/47certificates/internal/store"
+	"github.com/bamit99/47certificates/internal/store"
 )
 
 // GenerateAndStore creates the report row, generates the artifacts, and saves
