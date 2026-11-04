@@ -63,11 +63,15 @@ All authenticated users have the same permissions. Usernames are unique; duplica
 
 `/scope` holds one `kind:value` per line:
 
-- `include` — grants a domain and all of its subdomains.
+- `include` — grants a domain and all of its subdomains, and names a domain
+  that is scanned.
 - `exclude` — removes a host or subtree from the allowlist; always wins.
 - `seed` — a discovery hint; must sit inside an include. Seeds widen discovery, never permission.
 
 Wildcards are coverage metadata only; they are never dialled.
+
+Every `include` entry is a domain with its own inventory. The scope editor
+replaces the whole list, so keep every domain you still scan.
 
 ## Traffic profile and being a good citizen
 
@@ -105,15 +109,63 @@ The scan page streams its progress live. The counters are written to `scans.stat
 
 Severity is derived at read time. When 2027-03-15 arrives, a 120-day cert that was `100-day max`-compliant later becomes a violation **without any rescan**, because `severity` and the bucket are computed from the stored notBefore/lifetime rather than persisted.
 
+## Domains
+
+The tool is a per-domain inventory. Every domain has its own certificates,
+its own findings, its own scans and its own reports. Nothing mixes: a
+certificate that colt.net stopped serving is retired there and still live at
+another domain.
+
+A domain is an `include` entry in the scope. The domain picker in the header
+of every page switches between them, and the search on `/domains` narrows the
+list. Each domain has its own page at `/domains/<name>` with its counts, its
+certificates, its endpoints and its scans.
+
+A scan covers one domain. The scheduler and the CLI scan each domain in
+turn. The lifecycle of a certificate — when it was last seen, whether it was
+retired — is recorded per domain.
+
+### Choosing the columns
+
+`/certs/columns` picks the columns the certificate list shows. The choice is
+per user and is remembered. The available columns are fingerprint, subject,
+issuer, SANs, not-before, expires, lifetime, key, signature, trust, chain,
+hostname, bucket, severity, days left, endpoints, first seen, last seen and
+retired.
+
 ## Reports
 
-Kinds: `executive`, `worklist`, `inventory`, `domain`. Formats: HTML, CSV, JSON, ZIP (stored, not deflated). Reports are immutable: after generation the files and their SHA-256 (combined + per-file) are recorded, and only `GET /reports/{id}/download` hands them out. Re-generating creates a new row and new files.
+Kinds: `executive`, `worklist`, `inventory`, `domain`. Formats: PDF, HTML,
+CSV, JSON, Markdown, ZIP (stored, not deflated). Reports are immutable: after
+generation the files and their SHA-256 (combined + per-file) are recorded, and
+only `GET /reports/{id}/download` hands them out. Re-generating creates a new
+row and new files.
 
-Each report embeds `report_id`, `scan_id`, the scan time, `generated_at`, `scope` (the current allowlist string), `version` (`dev` until a release build overrides it) and a delta sentence against the previous report of the same kind ("N new certificate, M retired"). Every format carries the sentence "publicly-trusted certificates only; private-CA observations are excluded."
+The formats are not equal choices, so the best one is chosen per kind and
+marked as recommended:
 
-Counts are per certificate: a certificate served by ten endpoints is counted once, with its endpoints listed on the row. The CSV endpoint sheet lists every endpoint separately.
+| Kind | Recommended | Why |
+|---|---|---|
+| `executive` | PDF | A summary to send and print. |
+| `worklist` | CSV | A list to work through in a spreadsheet. |
+| `inventory` | CSV | An auditor's machine-readable dump. |
+| `domain` | Markdown | A handover note that reads well in a ticket or a commit message. |
 
-The delta compares against the previous report of the same kind using the certificate snapshot stored with that report (`report_snapshots`), so pruning old observations does not corrupt it.
+Every format stays downloadable, and the ZIP holds all five.
+
+Each report embeds `report_id`, `scan_id`, the scan time, `generated_at`,
+`scope` (the current allowlist string), `version` (`dev` until a release
+build overrides it) and a delta sentence against the previous report of the
+same kind ("N new certificate, M retired"). Every format carries the sentence
+"publicly-trusted certificates only; private-CA observations are excluded."
+
+Counts are per certificate: a certificate served by ten endpoints is counted
+once, with its endpoints listed on the row. The CSV endpoint sheet lists every
+endpoint separately.
+
+The delta compares against the previous report of the same kind using the
+certificate snapshot stored with that report (`report_snapshots`), so pruning
+old observations does not corrupt it.
 
 Scheduled reports (`report.schedule`, default `7 4 1 * *`) always use the **newest done scan**; if a newer non-done scan exists, the scheduler records a warning rather than silently using a stale or empty scan.
 

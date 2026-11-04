@@ -37,10 +37,11 @@ docker compose up -d         # serves 127.0.0.1:8080
 
 ## Web UI
 
-- `/` — dashboard: severity counts, phase exposure, next expiries, recent scans
-- `/certs` — the inventory, filterable by impact bucket, issuer, trust and expiry
+- `/` — dashboard: severity counts, phase exposure, next expiries, recent scans, and a legend explaining every status
+- `/domains` — every domain, searchable, each with its own page and inventory
+- `/certs` — the inventory of one domain; the columns are chosen per user at `/certs/columns`
 - `/scans` — scan history; a running scan streams its progress live
-- `/reports` — immutable HTML/CSV/JSON/ZIP reports with a delta against the previous one
+- `/reports` — immutable PDF/HTML/CSV/JSON/Markdown reports with a delta against the previous one
 - `/export?format=csv|json` — the observations of a completed scan, for an offline copy
 
 ## Development
