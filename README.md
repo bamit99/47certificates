@@ -68,6 +68,27 @@ whether it was retired there are per-domain facts. The database records them
 that way, so retirement and renewal tracking are correct for every estate
 independently.
 
+### Scope: publicly-trusted TLS certificates
+
+The CA/B Forum schedule in this README binds **publicly-trusted TLS server
+certificates** — certificates that chain to a root in a browser or OS trust
+program. It does not bind:
+
+- **Internal PKI.** A private CA sets its own lifetime policy. `47c` labels
+  those certificates `private_trust` and leaves them out of the lifetime
+  analysis.
+- **Anything that does not build to a public root.** `47c` cannot confirm the
+  certificate is publicly trusted, so it reports the chain problem instead of
+  claiming a lifetime violation. A `hostname_mismatch` or `untrusted_chain`
+  finding ranks higher anyway.
+- **CA certificates, code-signing, and S/MIME.** Root and intermediate
+  lifetimes, code-signing and S/MIME certificates are governed by separate
+  rules. `47c` sees only certificates served over TLS, so this rarely comes up,
+  but the lifetime findings are about leaf server certificates.
+
+Expiry findings apply to every certificate regardless of trust: an expired
+internal certificate being served is still an outage waiting to happen.
+
 ### Impact classification, not just a certificate list
 
 Each certificate is judged against the phase in force **when it was issued**:
@@ -76,6 +97,7 @@ Each certificate is judged against the phase in force **when it was issued**:
 |---|---|
 | `violates_current_phase` | The lifetime exceeds what the phase allowed at issuance. This should not exist. |
 | `grandfathered_too_long` | Legal when issued, too long for today's limit. A renewal must be shorter. |
+| `exceeds_next_phase` | Legal today, too long for the phase that comes next. The renewal chain has to shorten before that date. |
 | `exceeds_47_target` | Longer than the 47 days the 2029 phase will allow. |
 | `expires_soon` | Expires within 30 days. |
 | `expired_served` | Expired, and still being served. |
@@ -93,6 +115,7 @@ findings — so the dashboard counts certificates, never raw finding rows:
 |---|---|
 | `violation` | A rule is broken now. |
 | `grandfathered` | Legal when issued, too long today. A renewal has to be shorter. |
+| `next_phase` | Legal today, too long for the next phase. The renewal chain has to shorten before that date. |
 | `expiring` | Expires within 30 days. |
 | `target` | Above the 47-day target. Worklist for 2029, not broken today. |
 | `info` | A private certificate — out of scope for the 47-day analysis. |
@@ -107,7 +130,7 @@ the answer without a rescan or a migration:
 |---|---|
 | `critical` | `violates_current_phase`, `expired_served` |
 | `high` | `grandfathered_too_long`, `untrusted_chain`, `expires_soon` within 14 days |
-| `medium` | `expires_soon` within 30 days, `hostname_mismatch` |
+| `medium` | `exceeds_next_phase`, `expires_soon` within 30 days, `hostname_mismatch` |
 | `info` | `exceeds_47_target`, `private_trust` |
 
 ### Triage you can act on

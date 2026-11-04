@@ -49,35 +49,44 @@ func Findings(c Cert, v Verdict, now time.Time) []Finding {
 	if lifetime == 0 {
 		lifetime = phase.LifetimeDays(c.NotBefore, c.NotAfter)
 	}
-	maxAtIssue := phase.For(c.NotBefore).MaxLifetimeDays
-	current := phase.For(now)
-	maxToday := current.MaxLifetimeDays
-
 	out := make([]Finding, 0, 4)
-	if lifetime > maxAtIssue {
-		out = append(out, Finding{Type: ViolatesCurrentPhase, Detail: map[string]any{
-			"lifetime_days": lifetime, "max_days": maxAtIssue,
-		}})
-	}
-	if lifetime > maxToday && c.NotBefore.Before(current.StartsAt) {
-		out = append(out, Finding{Type: GrandfatheredTooLong, Detail: map[string]any{
-			"lifetime_days": lifetime, "max_days": maxToday,
-		}})
-	}
-	// The next phase forbids a shorter lifetime than today's. A certificate
-	// above that limit is legal today but cannot be reissued at its current
-	// length once the next phase begins, so its renewal chain has to shorten
-	// before then.
-	if next := phase.Next(now); next.Name != "" && lifetime > next.MaxLifetimeDays {
-		out = append(out, Finding{Type: ExceedsNextPhase, Detail: map[string]any{
-			"lifetime_days": lifetime, "max_days": next.MaxLifetimeDays,
-			"phase": next.Name, "effective": next.StartsAt.UTC().Format("2006-01-02"),
-		}})
-	}
-	if lifetime > 47 {
-		out = append(out, Finding{Type: Exceeds47Target, Detail: map[string]any{
-			"lifetime_days": lifetime, "target_days": 47,
-		}})
+
+	// The CA/B Forum schedule governs publicly-trusted TLS certificates only.
+	// An internal PKI sets its own lifetime policy, and a chain that does not
+	// build to a public root is not evidence of one, so the four lifetime
+	// findings are raised only for a confirmed public chain. A private or
+	// untrusted certificate still gets its own finding and its expiry checks;
+	// it simply is not measured against a rule that does not apply to it.
+	if v.Trust == "public" {
+		maxAtIssue := phase.For(c.NotBefore).MaxLifetimeDays
+		current := phase.For(now)
+		maxToday := current.MaxLifetimeDays
+
+		if lifetime > maxAtIssue {
+			out = append(out, Finding{Type: ViolatesCurrentPhase, Detail: map[string]any{
+				"lifetime_days": lifetime, "max_days": maxAtIssue,
+			}})
+		}
+		if lifetime > maxToday && c.NotBefore.Before(current.StartsAt) {
+			out = append(out, Finding{Type: GrandfatheredTooLong, Detail: map[string]any{
+				"lifetime_days": lifetime, "max_days": maxToday,
+			}})
+		}
+		// The next phase forbids a shorter lifetime than today's. A
+		// certificate above that limit is legal today but cannot be reissued
+		// at its current length once the next phase begins, so its renewal
+		// chain has to shorten before then.
+		if next := phase.Next(now); next.Name != "" && lifetime > next.MaxLifetimeDays {
+			out = append(out, Finding{Type: ExceedsNextPhase, Detail: map[string]any{
+				"lifetime_days": lifetime, "max_days": next.MaxLifetimeDays,
+				"phase": next.Name, "effective": next.StartsAt.UTC().Format("2006-01-02"),
+			}})
+		}
+		if lifetime > 47 {
+			out = append(out, Finding{Type: Exceeds47Target, Detail: map[string]any{
+				"lifetime_days": lifetime, "target_days": 47,
+			}})
+		}
 	}
 
 	daysLeft := DaysLeft(c.NotAfter, now)
@@ -109,7 +118,8 @@ func Findings(c Cert, v Verdict, now time.Time) []Finding {
 // produced them.
 func IsCertLevel(t string) bool {
 	switch t {
-	case ViolatesCurrentPhase, GrandfatheredTooLong, Exceeds47Target, ExpiresSoon, ExpiredServed:
+	case ViolatesCurrentPhase, GrandfatheredTooLong, Exceeds47Target, ExceedsNextPhase,
+		ExpiresSoon, ExpiredServed:
 		return true
 	}
 	return false
@@ -163,14 +173,16 @@ func bucketOf(t string) string {
 func rank(b string) int {
 	switch b {
 	case "violation":
-		return 5
+		return 6
 	case "grandfathered":
-		return 4
+		return 5
 	case "next_phase":
-		return 3
+		return 4
 	case "expiring":
-		return 2
+		return 3
 	case "target":
+		return 2
+	case "info":
 		return 1
 	default:
 		return 0
