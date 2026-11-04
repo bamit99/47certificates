@@ -175,23 +175,23 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	recent, _ := s.deps.Store.ListScans(ctx, dom.ID, 6)
 	data := struct {
 		pageData
-		Total        int
-		BucketRows   []bucketRow
-		PhaseRows    []phaseRow
-		Expiring     []CertView
-		RecentScans  []store.Scan
-		CurrentPhase phase.Rules
+		Total          int
+		BucketRows     []bucketRow
+		PhaseRows      []phaseRow
+		Expiring       []CertView
+		RecentScans    []store.Scan
+		CurrentPhase   phase.Rules
 		BucketLegend   []legendItem
 		SeverityLegend []legendItem
 		FindingLegend  []legendItem
 	}{
-		pageData:     s.base(r, "Dashboard"),
-		Total:        len(active),
-		BucketRows:   rows,
-		PhaseRows:    countPhases(active),
-		Expiring:     expiring,
-		RecentScans:  recent,
-		CurrentPhase: phase.For(s.now()),
+		pageData:       s.base(r, "Dashboard"),
+		Total:          len(active),
+		BucketRows:     rows,
+		PhaseRows:      countPhases(active),
+		Expiring:       expiring,
+		RecentScans:    recent,
+		CurrentPhase:   phase.For(s.now()),
 		BucketLegend:   bucketLegend,
 		SeverityLegend: severityLegend,
 		FindingLegend:  findingLegend,
@@ -369,6 +369,14 @@ func (s *Server) handleCertPEM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
+	added := r.URL.Query().Get("added")
+	s.renderDomains(w, r, http.StatusOK, added, "", "")
+}
+
+// renderDomains draws the domain list and the scope editor. added is the
+// domain the previous POST created; exists is a domain that was already in
+// the scope; errMsg is a rejected input.
+func (s *Server) renderDomains(w http.ResponseWriter, r *http.Request, status int, added, exists, errMsg string) {
 	ctx := r.Context()
 	entries, err := s.deps.Store.ListScope(ctx)
 	if err != nil {
@@ -384,12 +392,18 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 		pageData
 		Entries []store.ScopeEntry
 		Domains []store.Domain
+		Added   string
+		Exists  string
+		Error   string
 	}{
 		pageData: s.base(r, "Domains & Scope"),
 		Entries:  entries,
 		Domains:  domains,
+		Added:    added,
+		Exists:   exists,
+		Error:    errMsg,
 	}
-	s.render(w, "domains", data)
+	s.renderStatus(w, "domains", status, data)
 }
 
 // handleDomainDetail shows one domain: its counts, its certificates and the
@@ -421,14 +435,14 @@ func (s *Server) handleDomainDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	data := struct {
 		pageData
-		Domain   store.Domain
-		Certs    []CertView
-		Hosts    []string
-		Scans    []store.Scan
-		Counts   map[string]int
-		Total    int
-		Retired  int
-		Open     int
+		Domain  store.Domain
+		Certs   []CertView
+		Hosts   []string
+		Scans   []store.Scan
+		Counts  map[string]int
+		Total   int
+		Retired int
+		Open    int
 	}{
 		pageData: s.base(r, "Domain "+dom.Name),
 		Domain:   dom,

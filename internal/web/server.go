@@ -93,6 +93,7 @@ func New(d Deps) http.Handler {
 	s.mux.HandleFunc("GET /certs/{fp}", s.handleCertDetail)
 	s.mux.HandleFunc("GET /certs/{fp}/pem", s.handleCertPEM)
 	s.mux.HandleFunc("GET /domains", s.handleDomains)
+	s.mux.HandleFunc("POST /domains", s.handleDomainAdd)
 	s.mux.HandleFunc("GET /domains/{d}", s.handleDomainDetail)
 	s.mux.HandleFunc("GET /scans", s.handleScans)
 	s.mux.HandleFunc("GET /scans/{id}", s.handleScanDetail)

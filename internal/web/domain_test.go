@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bamit99/47certificates/internal/scope"
 	"github.com/bamit99/47certificates/internal/x509eval"
 )
 
@@ -176,5 +177,113 @@ func TestDashboardHasLegend(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("the dashboard does not explain %q", want)
 		}
+	}
+}
+
+// The common case has to be one field, not a four-symbol grammar: a bare host
+// is enough, and the include is appended instead of replacing the allowlist.
+func TestAddDomainAppendsBareHost(t *testing.T) {
+	s, st, cookie := newReadTestServer(t)
+	ctx := context.Background()
+	if err := st.ReplaceScope(ctx, []scope.Entry{{Kind: scope.Include, Value: "alpha.example"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := csrfPost(t, s, "/domains", url.Values{"domain": {"https://colt.net/support/index.html"}}, cookie)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303: %s", rec.Code, rec.Body)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/domains?added=colt.net" {
+		t.Errorf("Location = %q", loc)
+	}
+
+	entries, err := st.ListScope(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, e := range entries {
+		got[e.Value] = e.Kind
+	}
+	if got["colt.net"] != "include" {
+		t.Errorf("colt.net not added as include: %v", got)
+	}
+	// The existing entry survives: add appends, it does not replace.
+	if got["alpha.example"] != "include" {
+		t.Errorf("existing include lost: %v", got)
+	}
+	// The domain exists immediately, so it can be selected and scanned.
+	if _, err := st.DomainByName(ctx, "colt.net"); err != nil {
+		t.Errorf("domain row not created: %v", err)
+	}
+}
+
+func TestAddDomainNormalizesWhatPeoplePaste(t *testing.T) {
+	cases := map[string]string{
+		"colt.net":                "colt.net",
+		" COLT.NET ":              "colt.net",
+		"colt.net.":               "colt.net",
+		"*.colt.net":              "colt.net",
+		"https://colt.net":        "colt.net",
+		"http://colt.net:8443/x":  "colt.net",
+		"https://user@colt.net/a": "colt.net",
+		"https://colt.net?q=1":    "colt.net",
+	}
+	for in, want := range cases {
+		got, err := normalizeDomainInput(in)
+		if err != nil {
+			t.Errorf("normalizeDomainInput(%q): %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("normalizeDomainInput(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for _, bad := range []string{"", "   ", "https://"} {
+		if _, err := normalizeDomainInput(bad); err == nil {
+			t.Errorf("normalizeDomainInput(%q) should fail", bad)
+		}
+	}
+}
+
+// Adding a domain twice is a message, not a second row and not an error page.
+func TestAddDomainDuplicateIsReported(t *testing.T) {
+	s, st, cookie := newReadTestServer(t)
+	ctx := context.Background()
+	if err := st.ReplaceScope(ctx, []scope.Entry{{Kind: scope.Include, Value: "colt.net"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := csrfPost(t, s, "/domains", url.Values{"domain": {"colt.net"}}, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "already in the scope") {
+		t.Errorf("expected a duplicate message, got: %s", rec.Body)
+	}
+	entries, _ := st.ListScope(ctx)
+	if len(entries) != 1 {
+		t.Errorf("scope has %d entries, want 1", len(entries))
+	}
+}
+
+// A rejected value re-renders the page with the error and changes nothing.
+func TestAddDomainRejectsGarbage(t *testing.T) {
+	s, st, cookie := newReadTestServer(t)
+	ctx := context.Background()
+	if err := st.ReplaceScope(ctx, []scope.Entry{{Kind: scope.Include, Value: "alpha.example"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := csrfPost(t, s, "/domains", url.Values{"domain": {"not a domain"}}, cookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "role=\"alert\"") {
+		t.Errorf("expected an alert, got: %s", rec.Body)
+	}
+	entries, _ := st.ListScope(ctx)
+	if len(entries) != 1 {
+		t.Errorf("scope changed on invalid input: %v", entries)
 	}
 }

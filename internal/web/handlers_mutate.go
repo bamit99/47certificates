@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -34,6 +35,118 @@ var settingsSpec = []struct {
 
 func (s *Server) handleScopeGet(w http.ResponseWriter, r *http.Request) {
 	s.renderScope(w, r, http.StatusOK, "")
+}
+
+// handleDomainAdd appends one include to the scope.
+//
+// The scope page is a four-symbol grammar (kind:value), which is the right
+// model for an allowlist but a poor first step for "add colt.net". This
+// endpoint takes a bare host, normalizes what people paste (scheme, path,
+// port, wildcard, trailing dot) and appends the include without replacing the
+// rest of the allowlist.
+func (s *Server) handleDomainAdd(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	u, _ := UserFrom(ctx)
+	name, err := normalizeDomainInput(r.PostFormValue("domain"))
+	if err != nil {
+		s.renderDomains(w, r, http.StatusBadRequest, "", "", err.Error())
+		return
+	}
+
+	stored, err := s.deps.Store.ListScope(ctx)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	entries := scopeEntriesOf(stored)
+	for _, e := range entries {
+		if e.Kind == scope.Include && strings.EqualFold(e.Value, name) {
+			s.renderDomains(w, r, http.StatusOK, "", name, "")
+			return
+		}
+	}
+
+	entries = append(entries, scope.Entry{Kind: scope.Include, Value: name})
+	if err := s.deps.Store.ReplaceScope(ctx, entries, &u.ID); err != nil {
+		s.renderDomains(w, r, http.StatusBadRequest, "", "", err.Error())
+		return
+	}
+	_ = s.deps.Store.Audit(ctx, &u.ID, "scope.add", "scope",
+		[]byte(fmt.Sprintf(`{"domain":%q}`, name)), clientIP(r))
+	http.Redirect(w, r, "/domains?added="+url.QueryEscape(name), http.StatusSeeOther)
+}
+
+// normalizeDomainInput turns a pasted domain into a scope host: it drops a
+// scheme, credentials, a path, a port and a leading wildcard.
+func normalizeDomainInput(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", fmt.Errorf("enter a domain, for example example.com")
+	}
+	if i := strings.Index(s, "://"); i >= 0 {
+		s = s[i+3:]
+	}
+	if i := strings.IndexAny(s, "/?#"); i >= 0 {
+		s = s[:i]
+	}
+	if i := strings.LastIndex(s, "@"); i >= 0 {
+		s = s[i+1:]
+	}
+	s = strings.TrimPrefix(s, "*.")
+	if host, port, err := net.SplitHostPort(s); err == nil && port != "" {
+		s = host
+	}
+	name, err := scope.NormalizeHost(s)
+	if err != nil {
+		return "", err
+	}
+	if err := checkHostname(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// checkHostname rejects what NormalizeHost tolerates: it only guarantees a
+// non-empty set of labels, so "not a domain" passes it. A scope entry that
+// cannot match a hostname is a mistake worth naming rather than storing.
+func checkHostname(h string) error {
+	for _, label := range strings.Split(h, ".") {
+		if len(label) > 63 {
+			return fmt.Errorf("%q: label longer than 63 characters", h)
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return fmt.Errorf("%q: label starts or ends with a hyphen", h)
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' {
+				continue
+			}
+			return fmt.Errorf("%q is not a hostname", h)
+		}
+	}
+	return nil
+}
+
+// scopeEntriesOf converts stored rows back into the scope package's entries.
+// Storage keeps the kind as a string because SQLite has no enum.
+func scopeEntriesOf(stored []store.ScopeEntry) []scope.Entry {
+	out := make([]scope.Entry, 0, len(stored))
+	for _, e := range stored {
+		k := scope.Include
+		switch e.Kind {
+		case "exclude":
+			k = scope.Exclude
+		case "seed":
+			k = scope.Seed
+		}
+		out = append(out, scope.Entry{Kind: k, Value: e.Value})
+	}
+	return out
 }
 
 func (s *Server) handleScopePost(w http.ResponseWriter, r *http.Request) {

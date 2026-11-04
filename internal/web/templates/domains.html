@@ -3,6 +3,15 @@
 
 <p>Each domain has its own inventory. Scan one from its page.</p>
 
+<form method="post" action="/domains" class="filter-bar">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<p><label>Add a domain<br><input type="text" name="domain" value="" placeholder="example.com" autocomplete="off" required></label></p>
+<p><button type="submit">Add domain</button></p>
+</form>
+{{if .Added}}<p role="status">Added <code>{{.Added}}</code> to the scope. It covers the domain and all of its subdomains; scan it from its page.</p>{{end}}
+{{if .Exists}}<p role="status"><code>{{.Exists}}</code> is already in the scope.</p>{{end}}
+{{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
+
 <form method="get" action="/domains" class="filter-bar">
 <p><label>Search<br><input type="search" name="q" value="{{.DomainSearch}}" placeholder="domain name" autocomplete="off"></label></p>
 <button type="submit">Search</button>
