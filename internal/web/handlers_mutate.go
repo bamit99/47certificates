@@ -23,6 +23,8 @@ var settingsSpec = []struct {
 	{"ports", "Ports (comma-separated)"},
 	{"concurrency", "Concurrency (probes)"},
 	{"qps", "QPS (probes/second)"},
+	{"host_qps", "QPS per host (probes/second)"},
+	{"max_hosts", "Max hosts per scope"},
 	{"timeout", "Timeout (e.g. 10s)"},
 	{"schedule", "Scan schedule (cron)"},
 	{"retention", "Retention (scans kept)"},
@@ -173,10 +175,17 @@ func validateSettings(form url.Values) (map[string]string, []string) {
 				continue
 			}
 			values[spec.Key] = v
-		case "concurrency", "qps":
+		case "concurrency", "qps", "host_qps":
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 || n > 10000 {
 				errs = append(errs, spec.Key+": integer 1-10000")
+				continue
+			}
+			values[spec.Key] = strconv.Itoa(n)
+		case "max_hosts":
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 100000 {
+				errs = append(errs, "max_hosts: integer 1-100000")
 				continue
 			}
 			values[spec.Key] = strconv.Itoa(n)

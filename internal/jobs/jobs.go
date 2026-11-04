@@ -63,7 +63,7 @@ func (r *Runner) TriggerScan(ctx context.Context, trigger string, userID *int64)
 		releaseReservation()
 		return 0, err
 	}
-	ports, concurrency, qps, timeout := r.scanSettings(ctx)
+	ports, concurrency, qps, hostQPS, maxHosts, timeout := r.scanSettings(ctx)
 
 	// Re-check the store lock so a CLI scan also blocks the web trigger.
 	lockCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -87,6 +87,8 @@ func (r *Runner) TriggerScan(ctx context.Context, trigger string, userID *int64)
 	eng := *r.Eng
 	eng.Concurrency = concurrency
 	eng.QPS = qps
+	eng.HostQPS = hostQPS
+	eng.MaxHosts = maxHosts
 	eng.Timeout = timeout
 
 	scanCtx, scanCancel := context.WithCancel(context.Background())
@@ -182,11 +184,14 @@ func (r *Runner) scopeSet(ctx context.Context) (*scope.Set, error) {
 	return scope.New(set)
 }
 
-func (r *Runner) scanSettings(ctx context.Context) (ports []int, concurrency, qps int, timeout time.Duration) {
-	// Defaults: 443 only, 32 workers, 25 qps, 10s timeout.
+func (r *Runner) scanSettings(ctx context.Context) (ports []int, concurrency, qps, hostQPS, maxHosts int, timeout time.Duration) {
+	// Defaults: 443 only, 32 workers, 25 qps overall, 1 qps per host, 1000
+	// hosts per scope, 10s timeout.
 	ports = []int{443}
 	concurrency = 32
 	qps = 25
+	hostQPS = 1
+	maxHosts = 1000
 	timeout = 10 * time.Second
 
 	if v := r.stringSetting(ctx, "ports", ""); v != "" {
@@ -204,12 +209,22 @@ func (r *Runner) scanSettings(ctx context.Context) (ports []int, concurrency, qp
 			qps = n
 		}
 	}
+	if v := r.stringSetting(ctx, "host_qps", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			hostQPS = n
+		}
+	}
+	if v := r.stringSetting(ctx, "max_hosts", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxHosts = n
+		}
+	}
 	if v := r.stringSetting(ctx, "timeout", ""); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			timeout = d
 		}
 	}
-	return ports, concurrency, qps, timeout
+	return ports, concurrency, qps, hostQPS, maxHosts, timeout
 }
 
 func (r *Runner) stringSetting(ctx context.Context, key, def string) string {

@@ -49,7 +49,13 @@ type Engine struct {
 	Now         func() time.Time
 	Concurrency int
 	QPS         int
-	Timeout     time.Duration
+	// HostQPS caps the probes per second to any one hostname. Zero means
+	// one per second.
+	HostQPS int
+	// MaxHosts caps how many names one scope may contribute. Zero means no
+	// cap.
+	MaxHosts int
+	Timeout  time.Duration
 	// Wait makes lock acquisition block instead of failing when another scan
 	// is running.
 	Wait bool
@@ -126,10 +132,15 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 	// should show that the scan is running rather than an empty page.
 	publish("discover")
 	cachedNames, remember := ctCache(e.Store)
+	dnsLookup, dnsStore := dnsCache(e.Store)
 	disc, derr := discover.Run(ctx, set, e.Source, e.Resolver, discover.Options{
 		Fallback:        e.Fallback,
 		CachedNames:     cachedNames,
 		RememberSuccess: remember,
+		DNSLookup:       dnsLookup,
+		DNSStore:        dnsStore,
+		DNSMaxAge:       dnsCacheMaxAge,
+		MaxHosts:        e.MaxHosts,
 	})
 	stats.Warnings = disc.Warnings
 	if derr != nil {
@@ -166,6 +177,10 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 	jobs := make(chan collect.Endpoint)
 	results := make(chan collect.Observation, workers)
 	tick := newTicker(e.QPS)
+	// Per-host limiter: a scan must not hammer one server. Many names of a
+	// domain share a single address, and a burst of handshakes to one IP
+	// from one client is what an edge firewall sees as an attack.
+	hostLimiter := newHostLimiter(e.HostQPS)
 
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
@@ -177,6 +192,11 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 				case <-ctx.Done():
 					return
 				case <-tick.C:
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-hostLimiter.wait(ctx, ep.Host):
 				}
 				results <- collect.Probe(ctx, ep, probeOpts)
 			}
@@ -341,7 +361,39 @@ func ctCache(st *store.Store) (func(string) ([]string, bool), func(string, []str
 // ctCacheTTL is how long a CT answer is reused.
 const ctCacheTTL = 6 * time.Hour
 
+// dnsCacheMaxAge is how long a DNS answer is reused.
+//
+// A scan resolves every name a transparency log mentions. Most of those
+// names are retired and do not exist, so most of the queries are answered
+// "no such host" and re-asking them changes nothing. Caching the negative
+// answers keeps the resolver load of a repeated scan near zero, which is
+// what stops the scan from looking like a flood.
+const dnsCacheMaxAge = 24 * time.Hour
+
 func ctCacheKey(domain string) string { return "ct_cache:" + domain }
+
+// dnsCache wires the DNS answer cache to the store.
+func dnsCache(st *store.Store) (func(string) ([]string, string, bool, bool), func(string, []string, string, bool)) {
+	if st == nil {
+		return nil, nil
+	}
+	cache := st.DNSCache()
+	lookup := func(host string) ([]string, string, bool, bool) {
+		a, ok := cache.Lookup(context.Background(), host, dnsCacheMaxAge)
+		if !ok {
+			return nil, "", false, false
+		}
+		return a.IPs, a.CNAME, a.NXDomain, true
+	}
+	remember := func(host string, ips []string, cname string, nxdomain bool) {
+		_ = cache.Store(context.Background(), host, store.DNSAnswer{
+			IPs:      ips,
+			CNAME:    cname,
+			NXDomain: nxdomain,
+		})
+	}
+	return lookup, remember
+}
 
 // ctCacheEntry is the cached CT answer for one domain.
 type ctCacheEntry struct {
@@ -433,4 +485,62 @@ func newTicker(qps int) limiter {
 	}
 	t := time.NewTicker(interval)
 	return limiter{C: t.C, Stop: t.Stop}
+}
+
+// hostLimiter spaces out the probes of one hostname.
+//
+// A scan resolves every name a transparency log mentions, and the names of
+// one domain often share an address. Without this, a scan can open dozens of
+// connections to one server in a second, which is what a firewall or an edge
+// provider sees as an attack rather than an audit.
+type hostLimiter struct {
+	mu       sync.Mutex
+	interval time.Duration
+	next     map[string]time.Time
+}
+
+// newHostLimiter returns a limiter that allows qps probes per second per
+// hostname. A non-positive qps means one probe per second.
+func newHostLimiter(qps int) *hostLimiter {
+	if qps <= 0 {
+		qps = 1
+	}
+	return &hostLimiter{
+		interval: time.Second / time.Duration(qps),
+		next:     map[string]time.Time{},
+	}
+}
+
+// wait returns a channel that becomes ready when the host may be probed.
+func (l *hostLimiter) wait(ctx context.Context, host string) <-chan time.Time {
+	ch := make(chan time.Time, 1)
+	delay := l.reserve(host)
+	if delay <= 0 {
+		ch <- time.Now()
+		return ch
+	}
+	t := time.NewTimer(delay)
+	go func() {
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+			close(ch)
+		case <-t.C:
+			ch <- time.Now()
+		}
+	}()
+	return ch
+}
+
+// reserve books the next slot for host and returns how long to wait.
+func (l *hostLimiter) reserve(host string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	at := l.next[host]
+	if at.Before(now) {
+		at = now
+	}
+	l.next[host] = at.Add(l.interval)
+	return at.Sub(now)
 }

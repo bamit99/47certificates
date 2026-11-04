@@ -19,7 +19,7 @@ import (
 // ErrScanInProgress is returned when another process holds the scan lock.
 var ErrScanInProgress = errors.New("store: scan already in progress")
 
-//go:embed migrations/0001_init.sql migrations/0002_cert_raw.sql migrations/0003_findings_null.sql migrations/0004_scanlock_holder.sql migrations/0005_findings_scan_id.sql migrations/0006_report_snapshots.sql
+//go:embed migrations/0001_init.sql migrations/0002_cert_raw.sql migrations/0003_findings_null.sql migrations/0004_scanlock_holder.sql migrations/0005_findings_scan_id.sql migrations/0006_report_snapshots.sql migrations/0007_dns_cache.sql
 var migrationFS embed.FS
 
 var migrations = []struct {
@@ -32,6 +32,7 @@ var migrations = []struct {
 	{4, "migrations/0004_scanlock_holder.sql"},
 	{5, "migrations/0005_findings_scan_id.sql"},
 	{6, "migrations/0006_report_snapshots.sql"},
+	{7, "migrations/0007_dns_cache.sql"},
 }
 
 // LatestSchemaVersion returns the highest migration version the binary knows.

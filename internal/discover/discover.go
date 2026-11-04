@@ -7,7 +7,9 @@ package discover
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -42,6 +44,21 @@ type Options struct {
 	CachedNames func(domain string) ([]string, bool)
 	// RememberSuccess records the names a source returned for a domain.
 	RememberSuccess func(domain string, names []string)
+	// DNSLookup returns the cached resolution of a hostname. When it answers
+	// true the resolver is not asked again. Re-asking names that do not
+	// exist is what makes a scan look like a flood to the resolver, and the
+	// answer does not change between scans.
+	DNSLookup func(host string) (ips []string, cname string, nxdomain bool, ok bool)
+	// DNSStore records the resolution of a hostname.
+	DNSStore func(host string, ips []string, cname string, nxdomain bool)
+	// DNSMaxAge bounds how old a cached resolution may be. Zero means the
+	// cache is used regardless of age.
+	DNSMaxAge time.Duration
+	// MaxHosts caps how many names one domain may contribute. A
+	// transparency log can list thousands of names for a large domain, and
+	// resolving them all is a lot of load for a resolver and the target.
+	// Zero means no cap.
+	MaxHosts int
 }
 
 // Result is the discovery output for one run.
@@ -102,6 +119,12 @@ func Run(ctx context.Context, set *scope.Set, src Source, res Resolver, opts Opt
 		hosts = append(hosts, norm)
 	}
 	sort.Strings(hosts)
+	if opts.MaxHosts > 0 && len(hosts) > opts.MaxHosts {
+		dropped := len(hosts) - opts.MaxHosts
+		hosts = hosts[:opts.MaxHosts]
+		out.Warnings = append(out.Warnings,
+			fmt.Sprintf("host cap: %d names dropped for this scope (limit %d)", dropped, opts.MaxHosts))
+	}
 	out.Hosts = hosts
 
 	if res == nil {
@@ -112,10 +135,35 @@ func Run(ctx context.Context, set *scope.Set, src Source, res Resolver, opts Opt
 		lookupTimeout = 2 * time.Second
 	}
 	for _, host := range hosts {
+		// A cached answer is replayed instead of asking the resolver again.
+		// Most of the names a transparency log mentions do not exist, and
+		// re-asking them every scan is what makes the scan look like a flood
+		// to the resolver.
+		if opts.DNSLookup != nil {
+			if ips, cname, nxdomain, ok := opts.DNSLookup(host); ok {
+				if nxdomain {
+					out.Warnings = append(out.Warnings, fmt.Sprintf("dns %s: cached: no such host", host))
+					continue
+				}
+				out.IPs[host] = ips
+				if cname != "" {
+					if norm, nerr := scope.NormalizeHost(cname); nerr == nil {
+						out.CNAMEs[host] = norm
+					}
+				}
+				continue
+			}
+		}
+
 		lctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 		ips, err := res.LookupHost(lctx, host)
 		cancel()
 		if err != nil {
+			if isNotFound(err) && opts.DNSStore != nil {
+				// The name does not exist. Remember it: asking again will
+				// not change the answer.
+				opts.DNSStore(host, nil, "", true)
+			}
 			out.Warnings = append(out.Warnings, fmt.Sprintf("dns %s: %v", host, err))
 			continue
 		}
@@ -124,13 +172,29 @@ func Run(ctx context.Context, set *scope.Set, src Source, res Resolver, opts Opt
 		lctx, cancel = context.WithTimeout(ctx, lookupTimeout)
 		cname, err := res.LookupCNAME(lctx, host)
 		cancel()
-		if err == nil && cname != "" {
+		if err != nil {
+			cname = ""
+		}
+		if cname != "" {
 			if norm, nerr := scope.NormalizeHost(cname); nerr == nil {
 				out.CNAMEs[host] = norm
 			}
 		}
+		if opts.DNSStore != nil {
+			opts.DNSStore(host, out.IPs[host], cname, false)
+		}
 	}
 	return out, nil
+}
+
+// isNotFound reports whether the resolver said the name does not exist, as
+// opposed to timing out or failing.
+func isNotFound(err error) bool {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return dnsErr.IsNotFound
+	}
+	return false
 }
 
 // namesFor queries one source once per starting host, using the 6-hour cache
