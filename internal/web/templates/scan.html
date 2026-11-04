@@ -23,7 +23,8 @@
 {{if or (eq .Scan.Status "queued") (eq .Scan.Status "running")}}
 <h2>Live progress</h2>
 <div id="progress" data-status="{{.Scan.Status}}">
-<p><span id="p-stage">starting…</span> · <span id="p-hosts">0</span> hosts · <span id="p-dialed">0</span> dialled · <span id="p-failed">0</span> failed</p>
+<p><span id="p-stage">starting…</span> · <span id="p-detail"></span></p>
+<p><span id="p-hosts">0</span> hosts · <span id="p-dialed">0</span> dialled · <span id="p-failed">0</span> failed</p>
 </div>
 {{end}}
 
@@ -56,6 +57,7 @@
   es.addEventListener("phase", (ev) => {
     const d = JSON.parse(ev.data);
     set("p-stage", d.stage);
+    set("p-detail", d.detail || "");
   });
   es.addEventListener("discovered", (ev) => {
     const d = JSON.parse(ev.data);

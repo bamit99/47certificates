@@ -27,14 +27,19 @@ type Progress struct {
 
 // Stats summarizes one scan.
 type Stats struct {
-	Stage    string   `json:"stage,omitempty"`
-	Hosts    int      `json:"hosts"`
-	Endpoints int     `json:"endpoints"`
-	Observed int      `json:"observed"`
-	Failed   int      `json:"failed"`
-	Public   int      `json:"public"`
-	Private  int      `json:"private"`
-	Untrusted int     `json:"untrusted"`
+	Stage     string `json:"stage,omitempty"`
+	Hosts     int    `json:"hosts"`
+	Endpoints int    `json:"endpoints"`
+	Observed  int    `json:"observed"`
+	Failed    int    `json:"failed"`
+	Public    int    `json:"public"`
+	Private   int    `json:"private"`
+	Untrusted int    `json:"untrusted"`
+	// Detail is the one line the live view shows about what the scan is
+	// doing right now: which source it is waiting on, how far DNS has got.
+	// It is cleared when probing starts, where the counters speak for
+	// themselves.
+	Detail   string   `json:"detail,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
 }
 
@@ -166,6 +171,24 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 		DNSStore:        dnsStore,
 		DNSMaxAge:       dnsCacheMaxAge,
 		MaxHosts:        e.MaxHosts,
+		// Discovery can spend minutes inside a transparency log and then a
+		// while resolving names. Publish what it is waiting for so the live
+		// view shows movement instead of a frozen zero.
+		OnSource: func(source, domain string, done bool, names int, err error) {
+			switch {
+			case !done:
+				stats.Detail = fmt.Sprintf("%s: querying %s…", source, domain)
+			case err != nil:
+				stats.Detail = fmt.Sprintf("%s: %s failed", source, domain)
+			default:
+				stats.Detail = fmt.Sprintf("%s: %d names for %s", source, names, domain)
+			}
+			publish("discover")
+		},
+		OnLookup: func(done, total int) {
+			stats.Detail = fmt.Sprintf("dns: %d/%d names resolved", done, total)
+			publish("discover")
+		},
 	})
 	stats.Warnings = disc.Warnings
 	if derr != nil {
@@ -180,6 +203,7 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 
 	endpoints := expand(disc, ports)
 	stats.Endpoints = len(endpoints)
+	stats.Detail = ""
 	report(Progress{Stage: "probe", Done: 0, Total: len(endpoints)})
 	publish("probe")
 

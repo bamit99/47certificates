@@ -31,6 +31,9 @@ func NewCRTSource(client *http.Client, base ...string) *CRTSource {
 	return &CRTSource{client: clientOr(client), base: strings.TrimSuffix(b, "/")}
 }
 
+// Name identifies the source in progress messages.
+func (c *CRTSource) Name() string { return "crt.sh" }
+
 // Names returns every hostname crt.sh knows for domain and its subdomains.
 func (c *CRTSource) Names(ctx context.Context, domain string) ([]string, error) {
 	u := c.base + "/?q=" + url.QueryEscape("%."+domain) + "&output=json"
@@ -72,6 +75,9 @@ func NewCertSpotterSource(client *http.Client, base ...string) *CertSpotterSourc
 	}
 	return &CertSpotterSource{client: clientOr(client), base: strings.TrimSuffix(b, "/")}
 }
+
+// Name identifies the source in progress messages.
+func (c *CertSpotterSource) Name() string { return "certspotter" }
 
 // Names returns every hostname Cert Spotter has issued for domain.
 //

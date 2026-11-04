@@ -535,6 +535,7 @@ func (s *Server) handleScanEvents(w http.ResponseWriter, r *http.Request) {
 	// sent.
 	prev := map[string]int{}
 	prevStage := ""
+	prevDetail := ""
 	for {
 		sc, err := s.deps.Store.ScanByID(ctx, id)
 		if err != nil {
@@ -570,9 +571,11 @@ func (s *Server) handleScanEvents(w http.ResponseWriter, r *http.Request) {
 		if v, ok := count("failed"); ok && v != prev["failed"] {
 			send("failed", map[string]any{"failed": v})
 		}
-		if v, ok := stats["stage"].(string); ok && v != "" && v != prevStage {
-			send("phase", map[string]any{"stage": v})
+		detail, _ := stats["detail"].(string)
+		if v, ok := stats["stage"].(string); ok && v != "" && (v != prevStage || detail != prevDetail) {
+			send("phase", map[string]any{"stage": v, "detail": detail})
 			prevStage = v
+			prevDetail = detail
 		}
 		for _, key := range []string{"hosts", "observed", "failed", "endpoints"} {
 			if v, ok := count(key); ok {

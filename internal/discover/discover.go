@@ -23,6 +23,19 @@ type Source interface {
 	Names(ctx context.Context, domain string) ([]string, error)
 }
 
+// Named is implemented by a Source that can name itself in progress messages.
+type Named interface {
+	Name() string
+}
+
+// sourceName is what the UI calls a source while it is being queried.
+func sourceName(src Source) string {
+	if n, ok := src.(Named); ok {
+		return n.Name()
+	}
+	return "ct"
+}
+
 // Resolver is the DNS surface discovery needs.
 type Resolver interface {
 	LookupHost(ctx context.Context, host string) ([]string, error)
@@ -59,6 +72,13 @@ type Options struct {
 	// resolving them all is a lot of load for a resolver and the target.
 	// Zero means no cap.
 	MaxHosts int
+	// OnSource reports a transparency-log query. done is false just before
+	// the request is made and true once it has answered: names is then the
+	// number of names it returned, and err is set if it failed. A scan can
+	// spend minutes here, and without this the UI shows nothing at all.
+	OnSource func(source, domain string, done bool, names int, err error)
+	// OnLookup reports DNS progress: done names resolved out of total.
+	OnLookup func(done, total int)
 }
 
 // Result is the discovery output for one run.
@@ -134,7 +154,13 @@ func Run(ctx context.Context, set *scope.Set, src Source, res Resolver, opts Opt
 	if lookupTimeout <= 0 {
 		lookupTimeout = 2 * time.Second
 	}
-	for _, host := range hosts {
+	if opts.OnLookup != nil {
+		opts.OnLookup(0, len(hosts))
+	}
+	for i, host := range hosts {
+		if opts.OnLookup != nil && i > 0 && i%25 == 0 {
+			opts.OnLookup(i, len(hosts))
+		}
 		// A cached answer is replayed instead of asking the resolver again.
 		// Most of the names a transparency log mentions do not exist, and
 		// re-asking them every scan is what makes the scan look like a flood
@@ -184,6 +210,9 @@ func Run(ctx context.Context, set *scope.Set, src Source, res Resolver, opts Opt
 			opts.DNSStore(host, out.IPs[host], cname, false)
 		}
 	}
+	if opts.OnLookup != nil {
+		opts.OnLookup(len(hosts), len(hosts))
+	}
 	return out, nil
 }
 
@@ -204,6 +233,7 @@ func namesFor(ctx context.Context, src Source, domains []string, opts Options, w
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
+	name := sourceName(src)
 	var (
 		out  []string
 		errs []string
@@ -214,13 +244,22 @@ func namesFor(ctx context.Context, src Source, domains []string, opts Options, w
 				if warnf != nil {
 					warnf(fmt.Sprintf("ct: cache fresh for %s; %d names replayed", d, len(cached)))
 				}
+				if opts.OnSource != nil {
+					opts.OnSource("cache", d, true, len(cached), nil)
+				}
 				out = append(out, cached...)
 				continue
 			}
 		}
+		if opts.OnSource != nil {
+			opts.OnSource(name, d, false, 0, nil)
+		}
 		ictx, cancel := context.WithTimeout(ctx, timeout)
 		names, err := src.Names(ictx, d)
 		cancel()
+		if opts.OnSource != nil {
+			opts.OnSource(name, d, true, len(names), err)
+		}
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", d, err))
 			continue

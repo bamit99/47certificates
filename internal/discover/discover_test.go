@@ -3,6 +3,7 @@ package discover
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -200,5 +201,95 @@ func TestCertSpotterSourceAsksForTheNames(t *testing.T) {
 	}
 	if !strings.Contains(query, "include_subdomains=true") {
 		t.Fatalf("query = %q; subdomains must be included", query)
+	}
+}
+
+// A scan can sit inside a transparency log for minutes. The UI needs to know
+// which source is being asked and what it answered.
+func TestSourceProgressIsReported(t *testing.T) {
+	set, err := scope.New([]scope.Entry{{Kind: scope.Include, Value: "example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []string
+	opts := Options{OnSource: func(source, domain string, done bool, names int, err error) {
+		switch {
+		case !done:
+			events = append(events, "start "+source+" "+domain)
+		case err != nil:
+			events = append(events, "error "+source+" "+domain)
+		default:
+			events = append(events, fmt.Sprintf("done %s %s %d", source, domain, names))
+		}
+	}}
+	if _, err := Run(context.Background(), set, fakeSource{names: []string{"a.example.com"}}, nil, opts); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"start ct example.com", "done ct example.com 1"}
+	if !reflect.DeepEqual(events, want) {
+		t.Errorf("events = %v, want %v", events, want)
+	}
+}
+
+func TestSourceProgressReportsFailure(t *testing.T) {
+	set, _ := scope.New([]scope.Entry{{Kind: scope.Include, Value: "example.com"}})
+	var events []string
+	opts := Options{OnSource: func(source, domain string, done bool, names int, err error) {
+		if done && err != nil {
+			events = append(events, "error "+source)
+		}
+	}}
+	_, _ = Run(context.Background(), set, fakeSource{err: errors.New("502")}, nil, opts)
+	if !reflect.DeepEqual(events, []string{"error ct"}) {
+		t.Errorf("events = %v, want [error ct]", events)
+	}
+}
+
+// A cached answer never reaches the source, so the view says so instead of
+// pretending crt.sh was asked.
+func TestSourceProgressNamesTheCache(t *testing.T) {
+	set, _ := scope.New([]scope.Entry{{Kind: scope.Include, Value: "example.com"}})
+	var got string
+	opts := Options{
+		CachedNames: func(string) ([]string, bool) { return []string{"a.example.com"}, true },
+		OnSource: func(source, domain string, done bool, names int, err error) {
+			got = fmt.Sprintf("%s %v %d", source, done, names)
+		},
+	}
+	if _, err := Run(context.Background(), set, fakeSource{}, nil, opts); err != nil {
+		t.Fatal(err)
+	}
+	if got != "cache true 1" {
+		t.Errorf("event = %q, want %q", got, "cache true 1")
+	}
+}
+
+// DNS is the second half of discovery and can be slow on a big estate.
+func TestLookupProgressIsReported(t *testing.T) {
+	set, _ := scope.New([]scope.Entry{{Kind: scope.Include, Value: "example.com"}})
+	names := []string{"example.com"}
+	for i := 0; i < 29; i++ {
+		names = append(names, fmt.Sprintf("h%02d.example.com", i))
+	}
+	var calls [][2]int
+	opts := Options{OnLookup: func(done, total int) {
+		calls = append(calls, [2]int{done, total})
+	}}
+	ips := map[string][]string{}
+	for _, n := range names {
+		ips[n] = []string{"192.0.2.1"}
+	}
+	if _, err := Run(context.Background(), set, fakeSource{names: names}, fakeResolver{ips: ips}, opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) < 3 {
+		t.Fatalf("calls = %v, want a start, a midpoint and an end", calls)
+	}
+	if calls[0] != [2]int{0, 30} {
+		t.Errorf("first call = %v, want {0 30}", calls[0])
+	}
+	last := calls[len(calls)-1]
+	if last != [2]int{30, 30} {
+		t.Errorf("last call = %v, want {30 30}", last)
 	}
 }
