@@ -29,6 +29,8 @@ var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
 			return fmt.Sprintf("lifetime %v days exceeds %v allowed for certificates issued after the current phase began", f.Detail["lifetime_days"], f.Detail["max_days"])
 		case x509eval.GrandfatheredTooLong:
 			return fmt.Sprintf("lifetime %v days exceeds today's %v-day limit; issued before the current phase began", f.Detail["lifetime_days"], f.Detail["max_days"])
+		case x509eval.ExceedsNextPhase:
+			return fmt.Sprintf("lifetime %v days exceeds the %v-day limit that applies from %v; the renewal chain has to come down before then", f.Detail["lifetime_days"], f.Detail["max_days"], f.Detail["effective"])
 		case x509eval.Exceeds47Target:
 			return fmt.Sprintf("lifetime %v days exceeds the 47-day target", f.Detail["lifetime_days"])
 		case x509eval.ExpiresSoon:

@@ -13,10 +13,15 @@ The CA/B Forum is shortening the maximum certificate lifetime in three steps:
 | P2 | 2027-03-15 | 100 days | 100 days |
 | P3 | 2029-03-15 | **47 days** | 10 days |
 
-Every certificate you hold today is too long for 2027, and almost all of them
-are too long for 2029. Automating renewal against a 47-day lifetime is not a
-change you make in 2029; it is a change you make now, because by then manual
-renewal is already unworkable.
+Every certificate you hold today was issued under a 398-day rule, and the
+limit has already started moving: 200 days since March 2026. Nearly all of
+them are too long for 2029, and most are too long for 2027.
+
+The limit applies to the certificate you *issue*, not the one you hold, so an
+estate on 396-day certificates renews its way down — 200, then 100, then 47 —
+and each step is enforced at the next renewal. The 47-day end state is
+therefore a multi-year project rather than a switch to throw in 2029, and the
+first deadline has already passed.
 
 `47c` answers three questions about your estate, per domain:
 

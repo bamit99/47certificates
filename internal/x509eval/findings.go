@@ -19,6 +19,7 @@ const (
 	ViolatesCurrentPhase = "violates_current_phase"
 	GrandfatheredTooLong = "grandfathered_too_long"
 	Exceeds47Target      = "exceeds_47_target"
+	ExceedsNextPhase     = "exceeds_next_phase"
 	ExpiresSoon          = "expires_soon"
 	ExpiredServed        = "expired_served"
 	HostnameMismatch     = "hostname_mismatch"
@@ -61,6 +62,16 @@ func Findings(c Cert, v Verdict, now time.Time) []Finding {
 	if lifetime > maxToday && c.NotBefore.Before(current.StartsAt) {
 		out = append(out, Finding{Type: GrandfatheredTooLong, Detail: map[string]any{
 			"lifetime_days": lifetime, "max_days": maxToday,
+		}})
+	}
+	// The next phase forbids a shorter lifetime than today's. A certificate
+	// above that limit is legal today but cannot be reissued at its current
+	// length once the next phase begins, so its renewal chain has to shorten
+	// before then.
+	if next := phase.Next(now); next.Name != "" && lifetime > next.MaxLifetimeDays {
+		out = append(out, Finding{Type: ExceedsNextPhase, Detail: map[string]any{
+			"lifetime_days": lifetime, "max_days": next.MaxLifetimeDays,
+			"phase": next.Name, "effective": next.StartsAt.UTC().Format("2006-01-02"),
 		}})
 	}
 	if lifetime > 47 {
@@ -136,6 +147,8 @@ func bucketOf(t string) string {
 		return "violation"
 	case GrandfatheredTooLong:
 		return "grandfathered"
+	case ExceedsNextPhase:
+		return "next_phase"
 	case ExpiresSoon:
 		return "expiring"
 	case Exceeds47Target:
@@ -150,8 +163,10 @@ func bucketOf(t string) string {
 func rank(b string) int {
 	switch b {
 	case "violation":
-		return 4
+		return 5
 	case "grandfathered":
+		return 4
+	case "next_phase":
 		return 3
 	case "expiring":
 		return 2
@@ -183,6 +198,8 @@ func Severity(f Finding, now time.Time) string {
 		return "critical"
 	case GrandfatheredTooLong, UntrustedChain:
 		return "high"
+	case ExceedsNextPhase:
+		return "medium"
 	case ExpiresSoon:
 		if d := detailDays(f.Detail); d <= 14 {
 			return "high"

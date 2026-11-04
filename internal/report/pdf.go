@@ -55,7 +55,7 @@ func renderPDF(kind Kind, v reportView) ([]byte, error) {
 			{Title: "Bucket", Width: 240},
 			{Title: "Certificates", Width: 100, Align: pdf.AlignRight},
 		}, pdfMargin, y)
-		for _, name := range []string{"violation", "grandfathered", "expiring", "target", "info", "ok"} {
+		for _, name := range []string{"violation", "grandfathered", "next_phase", "expiring", "target", "info", "ok"} {
 			counts.Row([]string{name, fmt.Sprint(v.Counts[name])})
 		}
 		counts.Row([]string{"total", fmt.Sprint(v.Total)})

@@ -9,6 +9,7 @@
 <div class="card"><span>Certificates observed</span><b>{{.Total}}</b></div>
 <div class="card"><span>Violations</span><b class="violation">{{index .Counts "violation"}}</b></div>
 <div class="card"><span>Grandfathered</span><b class="grandfathered">{{index .Counts "grandfathered"}}</b></div>
+<div class="card"><span>Too long for the next phase</span><b class="grandfathered">{{index .Counts "next_phase"}}</b></div>
 <div class="card"><span>Expiring ≤30d</span><b class="expiring">{{index .Counts "expiring"}}</b></div>
 <div class="card"><span>Above 47-day target</span><b>{{index .Counts "target"}}</b></div>
 <div class="card"><span>Compliant</span><b class="ok">{{index .Counts "ok"}}</b></div>

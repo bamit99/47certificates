@@ -119,7 +119,7 @@ tr:last-child td {
 }
 
 .badge.critical, .badge.violation { background: var(--crit-bg); color: var(--crit-text); }
-.badge.high, .badge.grandfathered { background: var(--high-bg); color: var(--high-text); }
+.badge.high, .badge.grandfathered, .badge.next_phase { background: var(--high-bg); color: var(--high-text); }
 .badge.medium, .badge.expiring { background: var(--med-bg); color: var(--med-text); }
 .badge.ok { background: var(--ok-bg); color: var(--ok-text); }
 .badge.info, .badge.target { background: var(--info-bg); color: var(--info-text); }

@@ -37,6 +37,18 @@ func For(t time.Time) Rules {
 	return Schedule[idx]
 }
 
+// Next returns the phase that follows the one in force at t. It returns the
+// zero Rules after the last phase, when there is no further step.
+func Next(t time.Time) Rules {
+	idx := sort.Search(len(Schedule), func(i int) bool {
+		return Schedule[i].StartsAt.After(t)
+	})
+	if idx >= len(Schedule) {
+		return Rules{}
+	}
+	return Schedule[idx]
+}
+
 // LifetimeDays returns the whole days between notBefore and notAfter. This is
 // arithmetic, not the ordered validity span: a backdated notBefore still
 // shortens the measured lifetime.

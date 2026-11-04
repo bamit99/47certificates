@@ -62,6 +62,7 @@ var bucketLabels = []struct {
 }{
 	{"violation", "Violations"},
 	{"grandfathered", "Grandfathered"},
+	{"next_phase", "Too long for the next phase"},
 	{"expiring", "Expiring"},
 	{"target", "Above 47-day target"},
 	{"info", "Informational"},
@@ -255,6 +256,9 @@ func describe(f x509eval.Finding) string {
 	case x509eval.GrandfatheredTooLong:
 		return fmt.Sprintf("lifetime %dd exceeds today's %dd limit; issued before the current phase began",
 			detailInt(f.Detail, "lifetime_days"), detailInt(f.Detail, "max_days"))
+	case x509eval.ExceedsNextPhase:
+		return fmt.Sprintf("lifetime %dd exceeds the %dd-day limit that applies from %v; the renewal chain has to come down before then",
+			detailInt(f.Detail, "lifetime_days"), detailInt(f.Detail, "max_days"), f.Detail["effective"])
 	case x509eval.Exceeds47Target:
 		return fmt.Sprintf("lifetime %dd exceeds the 47-day target", detailInt(f.Detail, "lifetime_days"))
 	case x509eval.ExpiresSoon:

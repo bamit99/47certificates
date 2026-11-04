@@ -34,7 +34,7 @@ func renderMarkdown(kind Kind, v reportView) []byte {
 	case Executive:
 		fmt.Fprintf(&b, "\n## Counts\n\n")
 		b.WriteString("| Bucket | Certificates |\n|---|---:|\n")
-		for _, name := range []string{"violation", "grandfathered", "expiring", "target", "info", "ok"} {
+		for _, name := range []string{"violation", "grandfathered", "next_phase", "expiring", "target", "info", "ok"} {
 			fmt.Fprintf(&b, "| %s | %d |\n", name, v.Counts[name])
 		}
 		fmt.Fprintf(&b, "| **total** | **%d** |\n", v.Total)
