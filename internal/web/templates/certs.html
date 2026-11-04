@@ -1,5 +1,6 @@
 {{define "content"}}
 <h1>Certificates</h1>
+<p><a href="/export?format=csv">Download CSV</a> · <a href="/export?format=json">Download JSON</a></p>
 
 <form method="get" action="/certs" class="filter-bar">
 <input type="text" name="q" value="{{.Query}}" placeholder="Search fingerprint, subject, issuer, SAN">

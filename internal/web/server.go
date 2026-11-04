@@ -94,6 +94,7 @@ func New(d Deps) http.Handler {
 	s.mux.HandleFunc("GET /scans/{id}/events", s.handleScanEvents)
 	s.mux.HandleFunc("GET /api/certs", s.handleAPICerts)
 	s.mux.HandleFunc("GET /api/scans", s.handleAPIScans)
+	s.mux.HandleFunc("GET /export", s.handleExport)
 	s.mux.HandleFunc("GET /scope", s.handleScopeGet)
 	s.mux.HandleFunc("POST /scope", s.handleScopePost)
 	s.mux.HandleFunc("GET /settings", s.handleSettingsGet)

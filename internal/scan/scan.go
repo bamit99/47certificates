@@ -27,14 +27,15 @@ type Progress struct {
 
 // Stats summarizes one scan.
 type Stats struct {
-	Hosts     int      `json:"hosts"`
-	Endpoints int      `json:"endpoints"`
-	Observed  int      `json:"observed"`
-	Failed    int      `json:"failed"`
-	Public    int      `json:"public"`
-	Private   int      `json:"private"`
-	Untrusted int      `json:"untrusted"`
-	Warnings  []string `json:"warnings,omitempty"`
+	Stage    string   `json:"stage,omitempty"`
+	Hosts    int      `json:"hosts"`
+	Endpoints int     `json:"endpoints"`
+	Observed int      `json:"observed"`
+	Failed   int      `json:"failed"`
+	Public   int      `json:"public"`
+	Private  int      `json:"private"`
+	Untrusted int     `json:"untrusted"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Engine executes one scan. All dependencies are injected so the pipeline can
@@ -100,25 +101,42 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 			progress(p)
 		}
 	}
-
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		stats := Stats{}
 		e.finish(scanID, "cancelled", stats, ctxErr.Error())
 		return stats, ctxErr
 	}
 
+	// The counters are published while the scan runs so the UI can show
+	// movement, and again when it ends.
+	stats := Stats{Stage: "discover"}
+	publish := func(stage string) {
+		stats.Stage = stage
+		payload, err := jsonStats(stats)
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = e.Store.UpdateScanStats(ctx, scanID, payload)
+	}
+
 	report(Progress{Stage: "discover"})
+	// Publish before discovery starts: it can take a while, and the UI
+	// should show that the scan is running rather than an empty page.
+	publish("discover")
 	cachedNames, remember := ctCache(e.Store)
 	disc, derr := discover.Run(ctx, set, e.Source, e.Resolver, discover.Options{
 		Fallback:        e.Fallback,
 		CachedNames:     cachedNames,
 		RememberSuccess: remember,
 	})
-	stats := Stats{Warnings: disc.Warnings}
+	stats.Warnings = disc.Warnings
 	if derr != nil {
 		stats.Warnings = append(stats.Warnings, "discover: "+derr.Error())
 	}
 	stats.Hosts = len(disc.Hosts)
+	publish("discover")
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		e.finish(scanID, "cancelled", stats, ctxErr.Error())
 		return stats, ctxErr
@@ -127,6 +145,7 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 	endpoints := expand(disc, ports)
 	stats.Endpoints = len(endpoints)
 	report(Progress{Stage: "probe", Done: 0, Total: len(endpoints)})
+	publish("probe")
 
 	var (
 		mu     sync.Mutex
@@ -178,10 +197,15 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 		close(results)
 	}()
 
+	// The counters are published while the scan runs so the UI can show
+	// movement, and again when it ends.
 	for obs := range results {
 		done++
 		func() {
-			defer func() { report(Progress{Stage: "probe", Done: done, Total: len(endpoints)}) }()
+			defer func() {
+				report(Progress{Stage: "probe", Done: done, Total: len(endpoints)})
+				publish("probe")
+			}()
 			if obs.Err != nil {
 				stats.Failed++
 				if len(stats.Warnings) < 50 {
@@ -226,6 +250,7 @@ func (e *Engine) Run(ctx context.Context, scanID int64, set *scope.Set, ports []
 		e.finish(scanID, "failed", stats, runErr.Error())
 		return stats, runErr
 	}
+	stats.Stage = "done"
 	e.finish(scanID, "done", stats, "")
 	// Lifecycle fields (last_seen, retired_at) and finding closure are owned
 	// by scans that end "done". A cancelled or failed scan persists its

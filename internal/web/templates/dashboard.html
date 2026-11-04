@@ -10,6 +10,15 @@
 {{end}}
 </div>
 
+<h2>Phase exposure</h2>
+<p>Certificates by the CA/B phase in force when they were issued, and how many exceeded that phase's maximum lifetime.</p>
+<table>
+<thead><tr><th>Phase</th><th>Certificates issued</th><th>Exceeding phase max</th></tr></thead>
+<tbody>
+{{range .PhaseRows}}<tr><td>{{.Name}}</td><td>{{.Count}}</td><td>{{.Exceeding}}</td></tr>{{end}}
+</tbody>
+</table>
+
 <h2>Expiring soon</h2>
 {{if .Expiring}}
 <table>

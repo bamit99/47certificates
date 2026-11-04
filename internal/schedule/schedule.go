@@ -37,7 +37,8 @@ func Jitter() time.Duration {
 	return time.Duration(rand.Intn(20)-10) * time.Minute
 }
 
-// ParseRetention reads the retention setting (days of observations to keep).
+// ParseRetention reads the retention setting (the number of newest scans
+// whose observations are kept).
 func ParseRetention(v string, def int) int {
 	var n int
 	if v == "" {

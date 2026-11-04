@@ -35,6 +35,14 @@ docker compose up -d         # serves 127.0.0.1:8080
 - `health` — exits 0 when the database opens and the schema matches
 - `version`
 
+## Web UI
+
+- `/` — dashboard: severity counts, phase exposure, next expiries, recent scans
+- `/certs` — the inventory, filterable by impact bucket, issuer, trust and expiry
+- `/scans` — scan history; a running scan streams its progress live
+- `/reports` — immutable HTML/CSV/JSON/ZIP reports with a delta against the previous one
+- `/export?format=csv|json` — the observations of a completed scan, for an offline copy
+
 ## Development
 
 ```sh

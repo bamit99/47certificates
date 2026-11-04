@@ -77,6 +77,14 @@ Only `done` scans advance `certs.last_seen`, clear `certs.retired_at` and close 
 
 Discovery starts from the scope includes and anything crt.sh knows about them (`Cert Spotter` is the fallback source), filters to the allowlist, resolves addresses, and probes with the configured concurrency/QPS. CT answers are cached for 6 hours per domain; the cache stores the names it saw, so a rescan inside the window still probes the hosts CT revealed.
 
+### Watching a scan
+
+The scan page streams its progress live. The counters are written to `scans.stats_json` while the scan runs — not only when it ends — and the server-sent event stream emits `discovered`, `dialed`, `failed` and `phase` events as they change. A scan of a few thousand endpoints takes minutes; the page shows the counters moving instead of a blank panel.
+
+## Exporting
+
+`GET /export?format=csv` and `GET /export?format=json` write the observations of a completed scan as a download. Without `scan_id` the newest completed scan is used. The `/certs` page links to both.
+
 ## Phase-boundary behaviour
 
 Severity is derived at read time. When 2027-03-15 arrives, a 120-day cert that was `100-day max`-compliant later becomes a violation **without any rescan**, because `severity` and the bucket are computed from the stored notBefore/lifetime rather than persisted.
@@ -125,4 +133,4 @@ The webhook URL must be `http` or `https`. Link-local addresses (including the c
 
 ## Retention
 
-`retention` (default 30) is the number of newest scans whose `observations` rows are kept; older observation rows are deleted after each successful scheduled scan. Certificates and findings are never deleted by retention.
+`retention` (default 90) is the number of newest scans whose `observations` rows are kept; older observation rows are deleted after each successful scheduled scan. Certificates and findings are never deleted by retention.

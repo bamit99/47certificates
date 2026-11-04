@@ -1,9 +1,11 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/amit/47certificates/internal/phase"
+	"github.com/amit/47certificates/internal/scan"
 	"github.com/amit/47certificates/internal/store"
 )
 
@@ -69,12 +72,47 @@ type bucketRow struct {
 	Count int
 }
 
+// phaseRow counts the certificates issued in one CA/B phase and how many of
+// them exceed that phase's maximum lifetime.
+type phaseRow struct {
+	Name      string
+	Count     int
+	Exceeding int
+}
+
 func countBuckets(vs []CertView) map[string]int {
 	m := map[string]int{}
 	for _, v := range vs {
 		m[v.Bucket]++
 	}
 	return m
+}
+
+// countPhases buckets the certificates by the phase in force when they were
+// issued, and counts those whose lifetime exceeded that phase's maximum.
+func countPhases(vs []CertView) []phaseRow {
+	order := []string{"P0", "P1", "P2", "P3"}
+	rows := map[string]*phaseRow{}
+	for _, name := range order {
+		rows[name] = &phaseRow{Name: name}
+	}
+	for _, v := range vs {
+		p := phase.For(v.NotBefore)
+		r, ok := rows[p.Name]
+		if !ok {
+			r = &phaseRow{Name: p.Name}
+			rows[p.Name] = r
+		}
+		r.Count++
+		if v.LifetimeDays > p.MaxLifetimeDays {
+			r.Exceeding++
+		}
+	}
+	out := make([]phaseRow, 0, len(order))
+	for _, name := range order {
+		out = append(out, *rows[name])
+	}
+	return out
 }
 
 func activeCerts(vs []CertView) []CertView {
@@ -115,6 +153,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		pageData
 		Total        int
 		BucketRows   []bucketRow
+		PhaseRows    []phaseRow
 		Expiring     []CertView
 		RecentScans  []store.Scan
 		CurrentPhase phase.Rules
@@ -122,6 +161,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		pageData:     s.base(r, "Dashboard"),
 		Total:        len(active),
 		BucketRows:   rows,
+		PhaseRows:    countPhases(active),
 		Expiring:     expiring,
 		RecentScans:  recent,
 		CurrentPhase: phase.For(s.now()),
@@ -379,6 +419,10 @@ func (s *Server) handleScanEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	// The counters of the previous tick, so only the ones that changed are
+	// sent.
+	prev := map[string]int{}
+	prevStage := ""
 	for {
 		sc, err := s.deps.Store.ScanByID(ctx, id)
 		if err != nil {
@@ -386,10 +430,44 @@ func (s *Server) handleScanEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 			return
 		}
-		var stats json.RawMessage
+		// The counters are decoded loosely: the document holds strings and
+		// lists as well as numbers.
+		var stats map[string]any
 		if sc.Stats != "" {
-			stats = json.RawMessage(sc.Stats)
+			_ = json.Unmarshal([]byte(sc.Stats), &stats)
 		}
+		count := func(key string) (int, bool) {
+			v, ok := stats[key].(float64)
+			if !ok {
+				return 0, false
+			}
+			return int(v), true
+		}
+		send := func(event string, data map[string]any) {
+			payload, _ := json.Marshal(data)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
+			flusher.Flush()
+		}
+		if v, ok := count("hosts"); ok && v != prev["hosts"] {
+			send("discovered", map[string]any{"hosts": v})
+		}
+		if v, ok := count("observed"); ok && v != prev["observed"] {
+			endpoints, _ := count("endpoints")
+			send("dialed", map[string]any{"observed": v, "endpoints": endpoints})
+		}
+		if v, ok := count("failed"); ok && v != prev["failed"] {
+			send("failed", map[string]any{"failed": v})
+		}
+		if v, ok := stats["stage"].(string); ok && v != "" && v != prevStage {
+			send("phase", map[string]any{"stage": v})
+			prevStage = v
+		}
+		for _, key := range []string{"hosts", "observed", "failed", "endpoints"} {
+			if v, ok := count(key); ok {
+				prev[key] = v
+			}
+		}
+
 		payload, _ := json.Marshal(map[string]any{
 			"status": sc.Status,
 			"stats":  stats,
@@ -428,6 +506,56 @@ func (s *Server) handleAPIScans(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(scans)
+}
+
+// handleExport writes the current certificate inventory as CSV or JSON, for
+// an offline copy.
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format")
+	if format != "csv" && format != "json" {
+		http.Error(w, "format must be csv or json", http.StatusBadRequest)
+		return
+	}
+	scanID, err := strconv.ParseInt(r.URL.Query().Get("scan_id"), 10, 64)
+	if err != nil {
+		// Without a scan, export the newest done scan.
+		scanID, err = s.deps.Store.LatestDoneScan(r.Context())
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(w, "no completed scan to export", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	}
+	sc, err := s.deps.Store.ScanByID(r.Context(), scanID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if sc.Status != "done" {
+		http.Error(w, "that scan is not complete", http.StatusBadRequest)
+		return
+	}
+
+	var buf bytes.Buffer
+	switch format {
+	case "csv":
+		if err := scan.ExportCSV(r.Context(), s.deps.Store, scanID, &buf); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	case "json":
+		if err := scan.ExportJSON(r.Context(), s.deps.Store, scanID, &buf); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"47c-export-%d.%s\"", scanID, format))
+	_, _ = w.Write(buf.Bytes())
 }
 
 func staticHandler() http.Handler {

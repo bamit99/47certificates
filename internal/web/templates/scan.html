@@ -20,6 +20,13 @@
 <pre>{{json .Stats}}</pre>
 {{end}}
 
+{{if or (eq .Scan.Status "queued") (eq .Scan.Status "running")}}
+<h2>Live progress</h2>
+<div id="progress" data-status="{{.Scan.Status}}">
+<p><span id="p-stage">starting…</span> · <span id="p-hosts">0</span> hosts · <span id="p-dialed">0</span> dialled · <span id="p-failed">0</span> failed</p>
+</div>
+{{end}}
+
 <h2>Observations</h2>
 {{if .Rows}}
 <table>
@@ -41,8 +48,27 @@
 <p>No observations.</p>
 {{end}}
 <script>
-if ("{{.Scan.Status}}" === "queued" || "{{.Scan.Status}}" === "running") {
+(function () {
+  const el = document.getElementById("progress");
+  if (!el) return;
+  const set = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = v; };
   const es = new EventSource("/scans/{{.Scan.ID}}/events");
+  es.addEventListener("phase", (ev) => {
+    const d = JSON.parse(ev.data);
+    set("p-stage", d.stage);
+  });
+  es.addEventListener("discovered", (ev) => {
+    const d = JSON.parse(ev.data);
+    set("p-hosts", d.hosts);
+  });
+  es.addEventListener("dialed", (ev) => {
+    const d = JSON.parse(ev.data);
+    set("p-dialed", d.observed);
+  });
+  es.addEventListener("failed", (ev) => {
+    const d = JSON.parse(ev.data);
+    set("p-failed", d.failed);
+  });
   es.onmessage = (ev) => {
     const data = JSON.parse(ev.data);
     if (data.status === "done" || data.status === "failed" || data.status === "cancelled") {
@@ -50,6 +76,6 @@ if ("{{.Scan.Status}}" === "queued" || "{{.Scan.Status}}" === "running") {
       window.location.reload();
     }
   };
-}
+})();
 </script>
 {{end}}

@@ -52,6 +52,20 @@ func (s *Store) FinishScan(ctx context.Context, scanID int64, status string, sta
 	return nil
 }
 
+// UpdateScanStats writes the live progress counters of a running scan.
+//
+// The counters are written while the scan runs, not only when it ends, so
+// the UI can show movement. The status is left alone.
+func (s *Store) UpdateScanStats(ctx context.Context, scanID int64, stats []byte) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE scans SET stats_json = ? WHERE id = ? AND status IN ('queued', 'running')`,
+		string(stats), scanID)
+	if err != nil {
+		return fmt.Errorf("store: update scan stats: %w", err)
+	}
+	return nil
+}
+
 // ScanByID loads one scan.
 func (s *Store) ScanByID(ctx context.Context, id int64) (Scan, error) {
 	var (
