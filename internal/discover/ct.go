@@ -74,8 +74,13 @@ func NewCertSpotterSource(client *http.Client, base ...string) *CertSpotterSourc
 }
 
 // Names returns every hostname Cert Spotter has issued for domain.
+//
+// The API only returns the names when they are asked for with
+// expand=dns_names; without it every row carries hashes and dates alone and
+// the source would report nothing.
 func (c *CertSpotterSource) Names(ctx context.Context, domain string) ([]string, error) {
-	u := c.base + "/v1/issuances?domain=" + url.QueryEscape(domain) + "&include_subdomains=true"
+	u := c.base + "/v1/issuances?domain=" + url.QueryEscape(domain) +
+		"&include_subdomains=true&expand=dns_names"
 	body, err := getJSON(ctx, c.client, u)
 	if err != nil {
 		return nil, fmt.Errorf("certspotter: %w", err)

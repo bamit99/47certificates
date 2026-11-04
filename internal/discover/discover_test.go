@@ -181,3 +181,24 @@ func TestCertSpotterSourceParsesNames(t *testing.T) {
 		t.Fatalf("names = %v", names)
 	}
 }
+
+// The API only returns the names when they are asked for. Without the
+// parameter every row carries hashes alone and the source reports nothing,
+// which would leave the fallback useless when crt.sh is down.
+func TestCertSpotterSourceAsksForTheNames(t *testing.T) {
+	var query string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.RawQuery
+		io.WriteString(w, `[{"dns_names":["c.example.com"]}]`)
+	}))
+	defer srv.Close()
+	if _, err := NewCertSpotterSource(srv.Client(), srv.URL).Names(context.Background(), "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, "expand=dns_names") {
+		t.Fatalf("query = %q; the names must be requested", query)
+	}
+	if !strings.Contains(query, "include_subdomains=true") {
+		t.Fatalf("query = %q; subdomains must be included", query)
+	}
+}
