@@ -1,9 +1,11 @@
-data/
-.superpowers/
-.git/
+/data/
+/.superpowers/
+/.git/
 *.db
 *.db-wal
 *.db-shm
-47c
-Dockerfile
-docker-compose.yml
+# The compiled binary at the repository root. The path is anchored so that the
+# cmd/47c package is not caught by it.
+/47c
+/Dockerfile
+/docker-compose.yml
