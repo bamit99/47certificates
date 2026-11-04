@@ -69,6 +69,22 @@ All authenticated users have the same permissions. Usernames are unique; duplica
 
 Wildcards are coverage metadata only; they are never dialled.
 
+## Traffic profile and being a good citizen
+
+A scan asks a resolver about every name a certificate transparency log mentions for the domain, and opens a TLS connection to each name that answers. On a large domain that is a few thousand DNS queries and a few hundred TLS handshakes. The numbers are small, but they come from one address at one time, which is the shape an abuse filter looks at.
+
+What a scan does about it:
+
+- **DNS answers are cached for 24 hours, including the negative ones.** Most names a transparency log mentions are retired and do not exist. On the 801-name scope of a real domain, 166 of them answered "no such host"; re-asking them changes nothing, so the cache holds them. A repeated scan asks the resolver only about names it has not seen, and a scan of an unchanged estate asks almost nothing.
+- **Probes to one hostname are spaced one second apart** (`host_qps`). The names of a domain often share an address, and a burst of handshakes to a single server is what a firewall reads as an attack rather than an audit.
+- **The number of names one scope may contribute is capped** (`max_hosts`, default 1000). The scan reports how many names it dropped instead of quietly scanning less than asked.
+- **The overall probe rate is capped** (`qps`, default 25).
+- **Only ports you configure are probed** (`ports`, default 443).
+
+The TLS probes carry no user agent — a TLS handshake has no header to put one in — but they set the correct SNI, so the target sees an ordinary client that asked for a specific name and closed the connection.
+
+If the domain owner or the network operator asks for a slower scan, lower `host_qps` and `qps` in `/settings`, or narrow the scope. A scan of a domain with a few dozen names can run at one probe per second per host without touching anything unusual.
+
 ## Scanning
 
 Trigger from the UI (`/scans`) or the CLI (`/47c scan [--scope scope.txt] [--out report.csv]`). Without `--scope` the CLI scans the allowlist stored in the database, which is the same scope the UI uses. Scans are single-flight: the web UI and the CLI share a store-level lock and both refuse to double-run. The lock is refreshed while a scan runs, so a long scan cannot be overtaken.
@@ -134,3 +150,22 @@ The webhook URL must be `http` or `https`. Link-local addresses (including the c
 ## Retention
 
 `retention` (default 90) is the number of newest scans whose `observations` rows are kept; older observation rows are deleted after each successful scheduled scan. Certificates and findings are never deleted by retention.
+
+## Settings
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ports` | `443` | TCP ports to probe, comma separated |
+| `concurrency` | 32 | probes in flight at once |
+| `qps` | 25 | probes per second, overall |
+| `host_qps` | 1 | probes per second to any one hostname |
+| `max_hosts` | 1000 | names one scope may contribute |
+| `timeout` | `10s` | per-connection timeout |
+| `schedule` | `17 3 * * *` | nightly scan, UTC |
+| `report.schedule` | `7 4 1 * *` | monthly report, UTC |
+| `retention` | 90 | scans whose observations are kept |
+| `report.webhook_url` | — | where to deliver reports |
+
+`schedule` and `report.schedule` are read when the server starts, so a change to either needs a restart. The others take effect on the next scan.
+
+The limits that protect a resolver and a target server are `host_qps`, `max_hosts` and `qps`; see "Traffic profile" above.
