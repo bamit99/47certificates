@@ -1,0 +1,41 @@
+# Security gates — gitleaks (secrets), osv-scanner (dependency CVEs), zizmor (Actions audit).
+# osv-scanner and zizmor start in report-only mode (continue-on-error) so the first runs
+# don't fail the build while findings get triaged. To enforce, delete `continue-on-error: true`.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for gitleaks
+
+      - name: Secrets (gitleaks, incl. git history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Dependency CVEs (osv-scanner / go.sum)
+        continue-on-error: true
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
+          osv-scanner scan -L go.sum
+
+      - name: Workflow audit (zizmor)
+        continue-on-error: true
+        uses: zizmorcore/zizmor-action@v0.8.1

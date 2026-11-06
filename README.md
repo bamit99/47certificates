@@ -59,7 +59,7 @@ It is a *migration worklist*, not a compliance certificate.
 
 Every domain you add to the scope gets its own inventory: its own
 certificates, its own findings, its own scans and its own reports. **Nothing
-mixes.** A certificate that `colt.net` stopped serving is retired there and
+mixes.** A certificate that `example.net` stopped serving is retired there and
 still live at `example.com`.
 
 A certificate's fingerprint is a global fact — the same certificate may serve
@@ -279,7 +279,7 @@ where `scope.txt` holds one `kind:value` per line:
 
 ```
 include:example.com
-include:colt.net
+include:example.net
 exclude:dev.example.com
 seed:legacy.example.com
 ```
@@ -646,6 +646,6 @@ will eventually require them to be short.
 
 ---
 
-## Licence
+## License
 
 MIT. See [LICENSE](LICENSE).

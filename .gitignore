@@ -7,3 +7,6 @@ data/
 /47c
 .superpowers/
 cookies.txt
+
+# local CodeGraph index
+.codegraph/
