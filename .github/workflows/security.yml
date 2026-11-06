@@ -38,4 +38,4 @@ jobs:
 
       - name: Workflow audit (zizmor)
         continue-on-error: true
-        uses: zizmorcore/zizmor-action@v0
+        uses: zizmorcore/zizmor-action@v0.8.1
